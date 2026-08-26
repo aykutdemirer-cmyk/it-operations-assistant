@@ -1,0 +1,22 @@
+# Python
+apps/api/.venv/
+apps/api/__pycache__/
+apps/api/**/__pycache__/
+apps/api/.pytest_cache/
+apps/api/.env
+
+# OUI dataset: yalnızca işlenmiş oui.json commit edilir, ham CSV değil
+apps/api/app/discovery/data/oui_raw.csv
+
+# Node / Next.js
+node_modules/
+apps/web/.next/
+apps/web/next-env.d.ts
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db

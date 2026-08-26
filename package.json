@@ -1,0 +1,12 @@
+{
+  "name": "it-operations-assistant",
+  "private": true,
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev -w apps/web",
+    "test:web": "npm run test -w apps/web",
+    "lint:web": "npm run lint -w apps/web"
+  }
+}
