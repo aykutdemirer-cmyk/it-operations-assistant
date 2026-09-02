@@ -18,6 +18,7 @@ def test_schema_sql_contains_expected_columns():
         "device_type",
         "confidence",
         "status",
+        "latency_ms",
         "open_ports",
         "evidence",
         "last_seen",

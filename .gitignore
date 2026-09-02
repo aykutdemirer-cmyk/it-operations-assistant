@@ -5,6 +5,23 @@ apps/api/**/__pycache__/
 apps/api/.pytest_cache/
 apps/api/.env
 
+apps/agent/.venv/
+apps/agent/__pycache__/
+apps/agent/**/__pycache__/
+apps/agent/.pytest_cache/
+apps/agent/.env
+# Agent kendi kendine kayıt olduğunda kimliğini (agent_id/token) buraya
+# yazar — bkz. apps/agent/agent/authentication.py.
+apps/agent/.itops-agent-state.json
+
+# PyInstaller build çıktısı (Faz 32) — build.ps1 ile üretilir, commit
+# edilmez; backend `apps/agent/dist/build-info.json`'ı ÇALIŞMA
+# ZAMANINDA okur (bkz. app/agents/download.py).
+apps/agent/build/
+apps/agent/dist/
+apps/agent/dist-smoketest/
+apps/agent/build-smoketest/
+
 # OUI dataset: yalnızca işlenmiş oui.json commit edilir, ham CSV değil
 apps/api/app/discovery/data/oui_raw.csv
 

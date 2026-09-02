@@ -1,17 +1,110 @@
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0a0e15;
+  --foreground: #e6edf3;
+
+  --surface: #11161f;
+  --surface-raised: #171d29;
+  --border-subtle: #232b3a;
+  --border-strong: #303b4f;
+
+  --text-primary: #e6edf3;
+  --text-secondary: #8b98a9;
+  --text-muted: #5b6675;
+
+  --accent: #3b82f6;
+  --accent-soft: rgba(59, 130, 246, 0.14);
+  --accent-cyan: #22d3ee;
+  --accent-cyan-soft: rgba(34, 211, 238, 0.14);
+  --accent-violet: #a78bfa;
+  --accent-violet-soft: rgba(167, 139, 250, 0.14);
+
+  --status-up: #22c55e;
+  --status-up-soft: rgba(34, 197, 94, 0.14);
+  --status-down: #ef4444;
+  --status-down-soft: rgba(239, 68, 68, 0.14);
+  --status-warning: #f59e0b;
+  --status-warning-soft: rgba(245, 158, 11, 0.14);
+  --status-unknown: #94a3b8;
+  --status-unknown-soft: rgba(148, 163, 184, 0.14);
+
+  --confidence-high: #22c55e;
+  --confidence-medium: #eab308;
+  --confidence-low: #94a3b8;
+
+  --gradient-card: linear-gradient(155deg, rgba(59, 130, 246, 0.08), rgba(167, 139, 250, 0.03) 60%);
+  --glow-accent: 0 0 0 1px rgba(59, 130, 246, 0.25), 0 0 16px rgba(59, 130, 246, 0.12);
+
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+
+  --sidebar-width: 240px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Açık tema değerleri — hem sistem tercihi (JS mount olmadan önceki kısa
+   pencere için) hem de `ThemeProvider`'ın ayarladığı açık
+   `data-theme="light"` özniteliği için. Açık bir "dark" seçimi varsa
+   (`:not([data-theme="dark"])`), sistem tercihi onu asla ezemez. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --background: #f4f6f8;
+    --foreground: #171b21;
+
+    --surface: #ffffff;
+    --surface-raised: #ffffff;
+    --border-subtle: #e2e6eb;
+    --border-strong: #c9d0d9;
+
+    --text-primary: #171b21;
+    --text-secondary: #4b5563;
+    --text-muted: #7b8794;
+
+    --accent-soft: rgba(59, 130, 246, 0.1);
+    --accent-cyan-soft: rgba(34, 211, 238, 0.1);
+    --accent-violet-soft: rgba(167, 139, 250, 0.1);
+    --status-up-soft: rgba(34, 197, 94, 0.12);
+    --status-down-soft: rgba(239, 68, 68, 0.12);
+    --status-warning-soft: rgba(245, 158, 11, 0.12);
+    --status-unknown-soft: rgba(148, 163, 184, 0.12);
+
+    --gradient-card: linear-gradient(155deg, rgba(59, 130, 246, 0.05), rgba(167, 139, 250, 0.02) 60%);
+    --glow-accent: 0 0 0 1px rgba(59, 130, 246, 0.15), 0 0 12px rgba(59, 130, 246, 0.08);
+    --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.08);
   }
+}
+
+/* `ThemeProvider`'ın açıkça ayarladığı `data-theme="light"` — sistem
+   tercihinden bağımsız olarak her zaman uygulanır. */
+:root[data-theme="light"] {
+  --background: #f4f6f8;
+  --foreground: #171b21;
+
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --border-subtle: #e2e6eb;
+  --border-strong: #c9d0d9;
+
+  --text-primary: #171b21;
+  --text-secondary: #4b5563;
+  --text-muted: #7b8794;
+
+  --accent-soft: rgba(59, 130, 246, 0.1);
+  --accent-cyan-soft: rgba(34, 211, 238, 0.1);
+  --accent-violet-soft: rgba(167, 139, 250, 0.1);
+  --status-up-soft: rgba(34, 197, 94, 0.12);
+  --status-down-soft: rgba(239, 68, 68, 0.12);
+  --status-warning-soft: rgba(245, 158, 11, 0.12);
+  --status-unknown-soft: rgba(148, 163, 184, 0.12);
+
+  --gradient-card: linear-gradient(155deg, rgba(59, 130, 246, 0.05), rgba(167, 139, 250, 0.02) 60%);
+  --glow-accent: 0 0 0 1px rgba(59, 130, 246, 0.15), 0 0 12px rgba(59, 130, 246, 0.08);
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.08);
+  color-scheme: light;
 }
 
 html {
   height: 100%;
+  color-scheme: dark;
 }
 
 html,
@@ -26,7 +119,7 @@ body {
   flex-direction: column;
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -42,8 +135,8 @@ a {
   text-decoration: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
+@media (prefers-color-scheme: light) {
+  html:not([data-theme="dark"]) {
+    color-scheme: light;
   }
 }

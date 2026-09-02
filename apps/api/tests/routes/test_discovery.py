@@ -1,11 +1,28 @@
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.discovery.schemas import PingResult, PortResult, ScanResult
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _mock_persistence():
+    """Bu dosyadaki testler saf HTTP/discovery-mock testleridir; gerçek
+    PostgreSQL'e bağımlı olmamaları için `persist_scan_result` ve scan
+    history fonksiyonları mock'lanır. Discovery -> DB entegrasyonunun
+    kendisi için bkz. `tests/db/test_discovery_persistence.py`; scan
+    history entegrasyonu için bkz. `tests/test_scan_history_integration.py`."""
+    with (
+        patch("app.routes.discovery.persist_scan_result", AsyncMock(return_value=None)),
+        patch("app.routes.discovery.start_scan_record", AsyncMock(return_value=None)),
+        patch("app.routes.discovery.complete_scan_record", AsyncMock(return_value=None)),
+        patch("app.routes.discovery.fail_scan_record", AsyncMock(return_value=None)),
+    ):
+        yield
 
 
 def test_icmp_scan_returns_valid_schema_for_valid_cidr():

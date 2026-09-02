@@ -1,0 +1,24 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background-color: var(--surface-raised);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.connected {
+  border-color: var(--status-up);
+  background-color: var(--status-up-soft);
+  color: var(--status-up);
+}
+
+.disconnected {
+  border-color: var(--status-down);
+  background-color: var(--status-down-soft);
+  color: var(--status-down);
+}
