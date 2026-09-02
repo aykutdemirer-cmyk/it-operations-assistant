@@ -1,0 +1,242 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  width: 100%;
+  padding: 20px;
+  background-color: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.refreshButton {
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  background-color: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.refreshButton:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.refreshButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.status {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 200px;
+  padding: 7px 12px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  background-color: var(--background);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+
+.searchInput:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.select {
+  padding: 7px 10px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  background-color: var(--background);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+
+.select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.error {
+  font-size: 0.85rem;
+  color: var(--status-down);
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 40px 16px;
+}
+
+.emptyTitle {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.emptyText {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.emptyHint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.emptyCta {
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #fff;
+  background-color: var(--accent);
+  border-radius: var(--radius-md);
+  transition: opacity 0.15s ease;
+}
+
+.emptyCta:hover {
+  opacity: 0.9;
+}
+
+.tableWrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.table th {
+  text-align: left;
+  padding: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 10px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.mutedText {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.badgeMuted {
+  opacity: 0.7;
+  font-weight: 500;
+}
+
+.table tbody tr:hover {
+  background-color: var(--surface-raised);
+}
+
+.row {
+  cursor: pointer;
+}
+
+.row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.statusUp {
+  background-color: var(--status-up-soft);
+  color: var(--status-up);
+}
+
+.statusDown {
+  background-color: var(--status-down-soft);
+  color: var(--status-down);
+}
+
+.confidence-high {
+  background-color: var(--status-up-soft);
+  color: var(--confidence-high);
+}
+
+.confidence-medium {
+  background-color: rgba(234, 179, 8, 0.14);
+  color: var(--confidence-medium);
+}
+
+.confidence-low {
+  background-color: rgba(148, 163, 184, 0.14);
+  color: var(--confidence-low);
+}
+
+.chipList {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-family: var(--font-geist-mono), monospace;
+  color: var(--text-secondary);
+  background-color: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}

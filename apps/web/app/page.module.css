@@ -1,34 +1,64 @@
-.page {
-  --background: #fafafa;
-  --foreground: #fff;
-  --text-primary: #000;
-
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-geist-sans);
-  background-color: var(--background);
-}
-
 .main {
   display: flex;
   flex: 1;
   width: 100%;
-  max-width: 800px;
+  min-width: 0;
+  max-width: 1280px;
+  margin: 0 auto;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 16px;
-  background-color: var(--foreground);
-  padding: 120px 60px;
+  gap: 28px;
+  padding: 24px;
   color: var(--text-primary);
 }
 
-@media (prefers-color-scheme: dark) {
-  .page {
-    --background: #000;
-    --foreground: #000;
-    --text-primary: #ededed;
+.analyticsRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  min-width: 0;
+}
+
+.analyticsRow > * {
+  min-width: 0;
+}
+
+/* Faz 36 — Dashboard 2 ana kolona ayrıldı: sol = altyapı/cihaz dağılım
+   grafikleri, sağ = güvenlik uyarıları + canlı olay akışı. */
+.mainGrid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 28px;
+  min-width: 0;
+  align-items: start;
+}
+
+.mainGrid > * {
+  min-width: 0;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+}
+
+.secondary {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+@media (max-width: 900px) {
+  .analyticsRow,
+  .mainGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .main {
+    padding: 16px;
+    gap: 20px;
   }
 }

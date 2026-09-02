@@ -1,0 +1,132 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  width: 100%;
+  padding: 20px;
+  background-color: var(--surface);
+  background-image: var(--gradient-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+}
+
+.title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.status {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 28px;
+}
+
+.donut {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+}
+
+.donutHole {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background-color: var(--surface);
+}
+
+.availabilityValue {
+  font-size: 2.2rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.accent-up {
+  color: var(--status-up);
+}
+
+.accent-warning {
+  color: var(--status-warning);
+}
+
+.accent-down {
+  color: var(--status-down);
+}
+
+.accent-neutral {
+  color: var(--text-primary);
+}
+
+.availabilityLabel {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-width: 220px;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.dotUp {
+  background-color: var(--status-up);
+}
+
+.dotDown {
+  background-color: var(--status-down);
+}
+
+.dotUnknown {
+  background-color: var(--status-unknown);
+}
