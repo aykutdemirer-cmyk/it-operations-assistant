@@ -1,0 +1,169 @@
+.graphWrap {
+  position: relative;
+  width: 100%;
+  height: 640px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--surface);
+  overflow: hidden;
+}
+
+/* React Flow bileşenleri kendi CSS değişkenlerini kullanır — tema
+   uyumu için gerekli olanları burada override ediyoruz. */
+.graphWrap :global(.react-flow__attribution) {
+  background: transparent;
+  font-size: 0.65rem;
+}
+
+.graphWrap :global(.react-flow__controls) {
+  box-shadow: var(--shadow-card);
+}
+
+.graphWrap :global(.react-flow__controls-button) {
+  background-color: var(--surface-raised);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.graphWrap :global(.react-flow__controls-button):hover {
+  background-color: var(--accent-soft);
+}
+
+.handle {
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  min-width: 1px;
+  min-height: 1px;
+  border: none;
+}
+
+.deviceNode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 92px;
+  cursor: pointer;
+}
+
+.iconWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background-color: var(--surface-raised);
+  border: 1.5px solid var(--border-strong);
+}
+
+.deviceNode.online .iconWrap {
+  border-color: var(--status-up);
+}
+
+.deviceNode.offline .iconWrap {
+  opacity: 0.6;
+}
+
+.deviceNode.selected .iconWrap {
+  border-color: var(--accent);
+  box-shadow: var(--glow-accent);
+}
+
+.glow {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(34, 197, 94, 0.35), transparent 70%);
+  pointer-events: none;
+  animation: pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+.icon {
+  width: 22px;
+  height: 22px;
+  color: var(--text-primary);
+  position: relative;
+  z-index: 1;
+}
+
+.statusDot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  z-index: 2;
+}
+
+.dotUp {
+  background-color: var(--status-up);
+}
+
+.dotDown {
+  background-color: var(--status-down);
+}
+
+.nodeLabel {
+  max-width: 92px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nodeIp {
+  font-size: 0.66rem;
+  font-family: var(--font-geist-mono), monospace;
+  color: var(--text-muted);
+}
+
+.hubNode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 96px;
+  padding: 10px;
+  border-radius: var(--radius-lg);
+  background-color: var(--accent-soft);
+  border: 1.5px solid var(--accent);
+}
+
+.hubIcon {
+  width: 26px;
+  height: 26px;
+  color: var(--accent);
+}
+
+.hubLabel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: center;
+  word-break: break-word;
+}
+
+.hubCount {
+  font-size: 0.66rem;
+  color: var(--text-secondary);
+}

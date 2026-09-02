@@ -1,0 +1,41 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.viewLink {
+  align-self: flex-start;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.viewLink:hover {
+  text-decoration: underline;
+}
+
+/* Faz 38 — Topoloji Quick Inspect panelindeki RDP/SSH hızlı bağlantı
+   butonları, AgentDetailView.module.css'teki aynı desenle. */
+.quickConnect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quickConnectButton {
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  background-color: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.quickConnectButton:hover {
+  border-color: var(--accent);
+}
