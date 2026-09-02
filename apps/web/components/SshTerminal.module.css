@@ -1,0 +1,93 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 500px;
+  gap: 16px;
+}
+
+.loginForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 360px;
+  padding: 24px;
+  margin: 40px auto;
+  background-color: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.loginTitle {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.field input {
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  background-color: var(--background);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+
+.connectButton {
+  padding: 9px 14px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #fff;
+  background-color: var(--accent);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.connectButton:hover {
+  filter: brightness(1.1);
+}
+
+.hint {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.status {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.errorBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 400px;
+  padding: 24px;
+  margin: 40px auto;
+  text-align: center;
+  color: var(--status-down);
+  background-color: var(--status-down-soft);
+  border-radius: var(--radius-lg);
+}
+
+.terminalContainer {
+  flex: 1;
+  min-height: 500px;
+  padding: 8px;
+  background-color: #000;
+  border-radius: var(--radius-md);
+}
