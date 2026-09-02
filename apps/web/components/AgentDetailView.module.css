@@ -1,0 +1,365 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  width: 100%;
+  padding: 20px;
+  background-color: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.backLink {
+  align-self: flex-start;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.quickConnect {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.quickConnectButton {
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  background-color: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.quickConnectButton:hover {
+  border-color: var(--accent);
+}
+
+.quickConnectUnavailable {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.powerMenuWrap {
+  position: relative;
+}
+
+.powerMenuButton {
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--status-down);
+  background-color: var(--status-down-soft);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.powerMenuButton:hover {
+  filter: brightness(1.1);
+}
+
+.powerMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 200px;
+  padding: 6px;
+  background-color: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.powerMenuItem {
+  padding: 8px 10px;
+  font-size: 0.85rem;
+  text-align: left;
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.powerMenuItem:hover {
+  background-color: var(--status-down-soft);
+}
+
+.powerMenuItem:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sshCommandPreview {
+  margin-top: 2px;
+  padding: 6px 8px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background-color: var(--background);
+  border-radius: var(--radius-md);
+  word-break: break-all;
+}
+
+.sessionBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 2px 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent);
+  background-color: var(--accent-soft);
+  border-radius: 999px;
+}
+
+.refreshButton {
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--accent);
+  background-color: var(--accent-soft);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.refreshButton:hover {
+  filter: brightness(1.1);
+}
+
+.refreshButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.statusCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotOnline {
+  background-color: var(--status-up);
+}
+
+.dotOffline {
+  background-color: var(--status-down);
+}
+
+.dotUnknown {
+  background-color: var(--status-unknown);
+}
+
+.status,
+.error {
+  font-size: 0.85rem;
+}
+
+.status {
+  color: var(--text-secondary);
+}
+
+.error {
+  color: var(--status-down);
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 8px;
+}
+
+.tab {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.tab:hover {
+  background-color: var(--surface-raised);
+}
+
+.tabActive {
+  color: var(--accent);
+  background-color: var(--surface-raised);
+  font-weight: 600;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.82rem;
+}
+
+.field dt {
+  color: var(--text-muted);
+}
+
+.field dd {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.mono {
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.noData {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.tableWrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.table {
+  width: 100%;
+  min-width: 480px;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.table th {
+  text-align: left;
+  padding: 8px 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 8px 10px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.searchInput {
+  width: 100%;
+  max-width: 320px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  background-color: var(--background);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+
+.sortableHeader {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  font: inherit;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sortableHeader:hover {
+  color: var(--text-primary);
+}
+
+.idleRow {
+  opacity: 0.6;
+}
+
+.idleLabel {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.actionCell {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.actionButton,
+.actionButtonDanger {
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.actionButton:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.actionButtonDanger {
+  color: var(--status-down);
+  border-color: var(--status-down-soft);
+}
+
+.actionButtonDanger:hover {
+  background-color: var(--status-down-soft);
+}
+
+.actionButton:disabled,
+.actionButtonDanger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

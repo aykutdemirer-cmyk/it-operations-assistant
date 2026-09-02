@@ -1,0 +1,6 @@
+# Tek çalışma zamanı bağımlılığı: psutil (BSD-3-Clause, cross-platform
+# CPU/RAM/disk/network/process/Windows-service API'si — bkz. README.md
+# "Bağımlılık Kararı"). pytest yalnızca testler için (dev-only, apps/api
+# ile aynı sürüm — proje genelinde tutarlılık).
+psutil==7.2.2
+pytest==9.1.1

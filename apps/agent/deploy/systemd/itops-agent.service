@@ -1,0 +1,40 @@
+##############################################################################
+# IT Operations Assistant — Agent — örnek systemd unit dosyası (Faz 30).
+#
+# Bu dosya YALNIZCA bir REFERANSTIR — bu fazda gerçek bir Linux
+# makineye kurulmadı, `systemctl enable` çalıştırılmadı. Kurulum
+# adımları (bu, dosya kopyalama + servis hesabı oluşturma + gerçek
+# path'leri düzenleme gerektirir) sonraki bir faz kapsamındadır.
+#
+# Kurulum taslağı (yalnızca referans, otomatik uygulanmadı):
+#   sudo useradd --system --no-create-home itops-agent
+#   sudo cp -r apps/agent /opt/itops-agent
+#   sudo cp deploy/systemd/itops-agent.service /etc/systemd/system/
+#   # ExecStart/WorkingDirectory'deki yolları gerçek kurulum yoluna göre düzenleyin
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now itops-agent
+##############################################################################
+
+[Unit]
+Description=IT Operations Assistant Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=itops-agent
+Group=itops-agent
+WorkingDirectory=/opt/itops-agent
+EnvironmentFile=/opt/itops-agent/.env
+ExecStart=/opt/itops-agent/.venv/bin/python -m agent start
+Restart=on-failure
+RestartSec=10
+
+# Sertleştirme (kurulumun izin verdiği ölçüde) — agent'ın kendi state
+# dosyası dışında dosya sistemine yazma ihtiyacı yok.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/itops-agent
+
+[Install]
+WantedBy=multi-user.target

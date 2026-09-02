@@ -1,0 +1,141 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  margin-top: 6px;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.description {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.generateButton {
+  align-self: flex-start;
+  padding: 7px 14px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  background-color: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.generateButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.error {
+  font-size: 0.8rem;
+  color: var(--status-down);
+}
+
+.status {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.newCodeBox {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background-color: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+
+.newCodeLabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.codeRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.code {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.05em;
+}
+
+.copyButton {
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  background-color: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.countdown {
+  font-size: 0.78rem;
+  color: var(--status-warning);
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.hint {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.activeCodes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.activeCodesTitle {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.codeList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.codeListItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background-color: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.codeSmall {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+}
+
+.countdownSmall {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: var(--font-geist-mono), monospace;
+}

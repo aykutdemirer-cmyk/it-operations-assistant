@@ -1,0 +1,8 @@
+# Yalnızca EXE build ETMEK için gerekli — agent'ın çalışma zamanı
+# bağımlılığı DEĞİLDİR (bkz. apps/agent/requirements.txt: tek runtime
+# bağımlılığı psutil). PyInstaller GPL-2.0-or-later + "bootloader
+# exception" ile lisanslı — bootloader (derlenmiş stub) istisna
+# kapsamında, PyInstaller'ın kendisi yalnızca BUILD aracı olarak
+# kullanılır, agent'ın kendi kaynağına GPL şartı BULAŞTIRMAZ (bkz.
+# docs/decisions.md).
+pyinstaller==6.22.2
