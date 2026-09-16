@@ -19,6 +19,11 @@ const ADDITIONAL_DEV_ORIGINS = (process.env.NEXT_ALLOWED_DEV_ORIGINS ?? "10.0.21
   .filter(Boolean);
 
 const nextConfig: NextConfig = {
+  // Setup & Deployment — Docker imajının `node_modules`'ın tamamını
+  // değil, yalnızca gerçekten kullanılan bağımlılıkları içeren küçük
+  // bir `.next/standalone` çıktısı üretmesi için (bkz. `apps/web/
+  // Dockerfile`). Dev sunucusunun (`next dev`) davranışını etkilemez.
+  output: "standalone",
   allowedDevOrigins: ADDITIONAL_DEV_ORIGINS,
 
   async rewrites() {

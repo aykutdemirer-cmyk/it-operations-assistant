@@ -2183,6 +2183,7 @@ export type TicketComment = {
   status_to: TicketStatus | null;
   assigned_from_username: string | null;
   assigned_to_username: string | null;
+  is_internal: boolean;
   created_at: string;
 };
 
@@ -2396,6 +2397,7 @@ export async function addTicketComment(
     body?: string;
     status?: TicketStatus;
     assigned_to?: string | null;
+    is_internal?: boolean;
   },
 ): Promise<Ticket> {
   const response = await fetch(`${API_URL}/api/tickets/${ticketId}/comments`, {

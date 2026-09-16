@@ -107,6 +107,7 @@ def _comment_to_response(row: asyncpg.Record) -> TicketCommentResponse:
         status_to=row["status_to"],
         assigned_from_username=row["assigned_from_username"],
         assigned_to_username=row["assigned_to_username"],
+        is_internal=row["is_internal"],
         created_at=row["created_at"],
     )
 
@@ -297,9 +298,11 @@ async def get_ticket_detail(conn: asyncpg.Connection, ticket_id: UUID, *, actor:
     row = await db.get_ticket(conn, ticket_id)
     if row is None:
         raise TicketNotFoundError
-    if not _is_it_staff(actor) and row["created_by"] != actor.id:
+    is_staff = _is_it_staff(actor)
+    if not is_staff and row["created_by"] != actor.id:
         raise TicketAccessDeniedError
-    comments = await db.list_comments(conn, ticket_id)
+    # REQUESTER'a IT'nin gizli iç notları HİÇ dönmez.
+    comments = await db.list_comments(conn, ticket_id, include_internal=is_staff)
     return _ticket_to_response(row, comments)
 
 
@@ -316,11 +319,16 @@ async def add_comment(
     current = await db.get_ticket(conn, ticket_id)
     if current is None:
         raise TicketNotFoundError
-    if not _is_it_staff(actor) and current["created_by"] != actor.id:
+    is_staff = _is_it_staff(actor)
+    if not is_staff and current["created_by"] != actor.id:
         raise TicketAccessDeniedError
 
     fields = payload.model_fields_set
     body = payload.body.strip() if payload.body and payload.body.strip() else None
+    # REQUESTER asla gizli iç not yazamaz — istese bile sessizce görünür
+    # yanıta düşürülür (frontend zaten bu sekmeyi göstermiyor, bu yalnızca
+    # API seviyesinde bir savunma katmanı).
+    is_internal = bool(payload.is_internal) and is_staff
     wants_status = payload.status is not None and payload.status != current["status"]
     wants_assignee = "assigned_to" in fields and payload.assigned_to != current["assigned_to"]
 
@@ -359,6 +367,7 @@ async def add_comment(
                 status_to=None,
                 assigned_from=None,
                 assigned_to=None,
+                is_internal=is_internal,
             )
         if wants_status:
             await db.insert_comment(
@@ -386,13 +395,14 @@ async def add_comment(
             )
 
     # Faz 65 — bilet sahibine e-posta (ateşle-unut). Sahip kendi bileti
-    # üzerinde işlem yaptıysa ona haber vermeye gerek yok.
+    # üzerinde işlem yaptıysa ona haber vermeye gerek yok; gizli iç
+    # notlar REQUESTER'a HİÇBİR ZAMAN e-posta olarak da gitmez.
     fresh = await db.get_ticket(conn, ticket_id)
     if fresh is not None and fresh["created_by"] != actor.id:
         new_status = fresh["status"]
         if wants_status and new_status in ("RESOLVED", "CLOSED"):
             await _notify_owner(conn, fresh, "resolved", status=new_status)
-        elif body is not None:
+        elif body is not None and not is_internal:
             await _notify_owner(conn, fresh, "new_reply")
 
     return await get_ticket_detail(conn, ticket_id, actor=actor)

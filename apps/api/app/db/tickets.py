@@ -304,7 +304,7 @@ SELECT
     c.id, c.ticket_id, c.author_id, au.username AS author_username,
     c.event, c.body, c.status_from, c.status_to,
     fu.username AS assigned_from_username, tu.username AS assigned_to_username,
-    c.created_at
+    c.is_internal, c.created_at
 FROM ticket_comments c
 JOIN users au ON au.id = c.author_id
 LEFT JOIN users fu ON fu.id = c.assigned_from
@@ -323,11 +323,12 @@ async def insert_comment(
     status_to: str | None,
     assigned_from: UUID | None,
     assigned_to: UUID | None,
+    is_internal: bool = False,
 ) -> asyncpg.Record:
     row = await conn.fetchrow(
         """
-        INSERT INTO ticket_comments (ticket_id, author_id, event, body, status_from, status_to, assigned_from, assigned_to)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO ticket_comments (ticket_id, author_id, event, body, status_from, status_to, assigned_from, assigned_to, is_internal)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING id;
         """,
         ticket_id,
@@ -338,12 +339,16 @@ async def insert_comment(
         status_to,
         assigned_from,
         assigned_to,
+        is_internal,
     )
     return await conn.fetchrow(_COMMENT_SELECT + " WHERE c.id = $1", row["id"])
 
 
-async def list_comments(conn: asyncpg.Connection, ticket_id: UUID) -> list[asyncpg.Record]:
-    return await conn.fetch(_COMMENT_SELECT + " WHERE c.ticket_id = $1 ORDER BY c.created_at ASC", ticket_id)
+async def list_comments(conn: asyncpg.Connection, ticket_id: UUID, *, include_internal: bool = True) -> list[asyncpg.Record]:
+    # `include_internal=False` — REQUESTER'a IT'nin gizli notları HİÇ
+    # dönmez (bkz. `service.py::get_ticket_detail`).
+    where = " WHERE c.ticket_id = $1" if include_internal else " WHERE c.ticket_id = $1 AND c.is_internal = false"
+    return await conn.fetch(_COMMENT_SELECT + where + " ORDER BY c.created_at ASC", ticket_id)
 
 
 # ---- Faz 63 — dinamik Departman + Kategori taksonomisi ---------------

@@ -56,6 +56,10 @@ class TicketCommentCreateRequest(BaseModel):
     # atama KALDIRILIR; alan hiç gönderilmezse atama DEĞİŞMEZ — bu ayrım
     # route katmanında `model_fields_set` ile korunur.
     assigned_to: UUID | None = None
+    # Yalnızca IT ekibi (TECHNICIAN/ADMIN) `body` ile birlikte true
+    # gönderebilir — REQUESTER'dan gelirse servis katmanında sessizce
+    # False'a zorlanır (bkz. `service.py::add_comment`).
+    is_internal: bool = False
 
 
 class TicketCommentResponse(BaseModel):
@@ -69,6 +73,7 @@ class TicketCommentResponse(BaseModel):
     status_to: TicketStatus | None
     assigned_from_username: str | None
     assigned_to_username: str | None
+    is_internal: bool
     created_at: datetime
 
 

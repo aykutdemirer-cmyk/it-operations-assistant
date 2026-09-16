@@ -23,6 +23,7 @@ type CommentPayload = {
   body?: string;
   status?: TicketStatus;
   assigned_to?: string | null;
+  is_internal?: boolean;
 };
 
 /** Faz 62/63 — bilet detay + yanıt modalı. Sol tarafta zaman çizelgesi +
@@ -35,8 +36,14 @@ export function TicketDetailModal({ ticketId, onClose, onChanged }: { ticketId: 
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [users, setUsers] = useState<TicketAssignableUser[]>([]);
   const [reply, setReply] = useState("");
+  const [replyTab, setReplyTab] = useState<"public" | "internal">("public");
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Faz 65'in bilet-özel rol ekseni — yalnızca TECHNICIAN/ADMIN gizli iç
+  // not yazabilir ve hızlı IT aksiyonlarını görür (backend zaten aynı
+  // ayrımı `_is_it_staff` ile zorunlu kılıyor, bkz. `service.py`).
+  const isItStaff = currentUser?.ticket_role === "TECHNICIAN" || currentUser?.ticket_role === "ADMIN";
 
   async function load() {
     if (!token) return;
@@ -96,6 +103,35 @@ export function TicketDetailModal({ ticketId, onClose, onChanged }: { ticketId: 
               </p>
             )}
 
+            {isItStaff && (
+              <div className={styles.actionsCell} style={{ margin: "10px 0" }}>
+                <button
+                  type="button"
+                  className={styles.actionButton}
+                  disabled={busy || !currentUser || ticket.assigned_to === currentUser.id}
+                  onClick={() => currentUser && mutate({ assigned_to: currentUser.id })}
+                >
+                  {k.assignToMe}
+                </button>
+                <button
+                  type="button"
+                  className={styles.actionButton}
+                  disabled={busy || ticket.status === "RESOLVED" || ticket.status === "CLOSED"}
+                  onClick={() => mutate({ status: "RESOLVED" })}
+                >
+                  {k.markResolved}
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.actionButton} ${styles.actionButtonDanger}`}
+                  disabled={busy || ticket.status === "CLOSED"}
+                  onClick={() => mutate({ status: "CLOSED" })}
+                >
+                  {k.closeTicket}
+                </button>
+              </div>
+            )}
+
             <div
               style={{
                 display: "grid",
@@ -112,9 +148,20 @@ export function TicketDetailModal({ ticketId, onClose, onChanged }: { ticketId: 
                 </h4>
                 <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: 10, margin: "8px 0" }}>
                   {ticket.comments.map((c) => (
-                    <li key={c.id} style={{ borderLeft: "2px solid var(--border-strong)", paddingLeft: 10 }}>
+                    <li
+                      key={c.id}
+                      style={{
+                        borderLeft: `2px solid ${c.is_internal ? "var(--status-degraded, #b45309)" : "var(--border-strong)"}`,
+                        paddingLeft: 10,
+                      }}
+                    >
                       <div className={styles.status} style={{ fontSize: "0.72rem" }}>
                         <strong>{c.author_username}</strong> · {new Date(c.created_at).toLocaleString()}
+                        {c.is_internal && (
+                          <span className={styles.badge} style={{ marginLeft: 6 }}>
+                            {k.internalNoteBadge}
+                          </span>
+                        )}
                       </div>
                       {c.event === "comment" && <div>{c.body}</div>}
                       {c.event === "created" && <div className={styles.status}>{k.eventCreated}</div>}
@@ -136,28 +183,46 @@ export function TicketDetailModal({ ticketId, onClose, onChanged }: { ticketId: 
 
                 <label className={styles.status} style={{ display: "block" }}>
                   {k.addReply}
-                  <textarea
-                    className={styles.searchInput}
-                    style={{
-                      display: "block",
-                      width: "100%",
-                      minHeight: 120,
-                      marginTop: 6,
-                      resize: "vertical",
-                      boxSizing: "border-box",
-                      whiteSpace: "pre-wrap",
-                      overflowWrap: "break-word",
-                    }}
-                    placeholder={k.replyPlaceholder}
-                    value={reply}
-                    onChange={(e) => setReply(e.target.value)}
-                  />
                 </label>
+                {isItStaff && (
+                  <div className={styles.tabs} style={{ margin: "4px 0 0" }}>
+                    <button
+                      type="button"
+                      className={`${styles.tabButton} ${replyTab === "public" ? styles.tabButtonActive : ""}`}
+                      onClick={() => setReplyTab("public")}
+                    >
+                      {k.replyTabPublic}
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.tabButton} ${replyTab === "internal" ? styles.tabButtonActive : ""}`}
+                      onClick={() => setReplyTab("internal")}
+                    >
+                      {k.replyTabInternal}
+                    </button>
+                  </div>
+                )}
+                <textarea
+                  className={styles.searchInput}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    minHeight: 120,
+                    marginTop: 6,
+                    resize: "vertical",
+                    boxSizing: "border-box",
+                    whiteSpace: "pre-wrap",
+                    overflowWrap: "break-word",
+                  }}
+                  placeholder={isItStaff && replyTab === "internal" ? k.internalReplyPlaceholder : k.replyPlaceholder}
+                  value={reply}
+                  onChange={(e) => setReply(e.target.value)}
+                />
                 <button
                   type="button"
                   className={styles.toolbarButton}
                   disabled={busy || !reply.trim()}
-                  onClick={() => mutate({ body: reply.trim() })}
+                  onClick={() => mutate({ body: reply.trim(), is_internal: isItStaff && replyTab === "internal" })}
                 >
                   {k.send}
                 </button>

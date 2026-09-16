@@ -45,6 +45,12 @@ apps/web/next-env.d.ts
 .env
 .env.local
 
+# Faz 78 — Setup & Deployment. `deploy.sh`/`deploy.ps1`'in ürettiği
+# kalıcı veri dizini (PAM oturum kaydı/sürücü dosyaları) ve
+# `backup.sh`'ın ürettiği yedekler — hassas içerik, commit edilmez.
+/data/
+/backups/
+
 # OS
 .DS_Store
 Thumbs.db

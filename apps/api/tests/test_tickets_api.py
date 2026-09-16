@@ -434,3 +434,65 @@ async def test_csv_export_has_header_and_rows(isolated_db, client):
 async def test_csv_export_requires_permission(isolated_db, client):
     no_perm = await _headers(client, isolated_db, username="f69-noperm", role="OPERATOR", permissions=["PAM_ACCESS"])
     assert (await client.get("/api/tickets/export.csv", headers=no_perm)).status_code == 403
+
+
+# ---- Gizli IT İç Notları (is_internal) --------------------------------
+
+
+async def test_technician_internal_note_hidden_from_requester(isolated_db, client, monkeypatch):
+    sent: list[str] = []
+    monkeypatch.setattr("app.tickets.service.email_service.notify", lambda kind, **kw: sent.append(kind))
+
+    tech = await _headers(client, isolated_db, username="int-tech", ticket_role="TECHNICIAN")
+    req = await _headers(client, isolated_db, username="int-req", ticket_role="REQUESTER")
+    await isolated_db.execute("UPDATE users SET email = $1 WHERE username = $2", "req1@example.com", "int-req")
+    ticket = await _create_ticket(client, req, title="Gizli not testi")
+
+    internal = await client.post(
+        f"/api/tickets/{ticket['id']}/comments",
+        headers=tech,
+        json={"body": "Sunucuda RAID hatası var, kullanıcıya söylemeden değiştiriyoruz", "is_internal": True},
+    )
+    assert internal.status_code == 200
+    tech_bodies = [c["body"] for c in internal.json()["comments"]]
+    assert "Sunucuda RAID hatası var, kullanıcıya söylemeden değiştiriyoruz" in tech_bodies
+    # İç not REQUESTER'a e-posta olarak da gitmemeli (yalnızca görünür
+    # yanıt "new_reply" tetikler).
+    assert "new_reply" not in sent
+
+    seen_by_requester = await client.get(f"/api/tickets/{ticket['id']}", headers=req)
+    assert seen_by_requester.status_code == 200
+    req_bodies = [c["body"] for c in seen_by_requester.json()["comments"]]
+    assert "Sunucuda RAID hatası var, kullanıcıya söylemeden değiştiriyoruz" not in req_bodies
+
+
+async def test_requester_cannot_mark_own_comment_internal(isolated_db, client):
+    req = await _headers(client, isolated_db, username="int-req2", ticket_role="REQUESTER")
+    ticket = await _create_ticket(client, req, title="Requester iç not denemesi")
+
+    resp = await client.post(
+        f"/api/tickets/{ticket['id']}/comments",
+        headers=req,
+        json={"body": "bunu gizli yapmayı deniyorum", "is_internal": True},
+    )
+    assert resp.status_code == 200
+    comment = next(c for c in resp.json()["comments"] if c["body"] == "bunu gizli yapmayı deniyorum")
+    assert comment["is_internal"] is False
+
+
+async def test_visible_reply_still_notifies_requester(isolated_db, client, monkeypatch):
+    sent: list[str] = []
+    monkeypatch.setattr("app.tickets.service.email_service.notify", lambda kind, **kw: sent.append(kind))
+
+    tech = await _headers(client, isolated_db, username="int-tech2", ticket_role="TECHNICIAN")
+    req = await _headers(client, isolated_db, username="int-req3", ticket_role="REQUESTER")
+    await isolated_db.execute("UPDATE users SET email = $1 WHERE username = $2", "req3@example.com", "int-req3")
+    ticket = await _create_ticket(client, req, title="Görünür yanıt testi")
+
+    resp = await client.post(
+        f"/api/tickets/{ticket['id']}/comments",
+        headers=tech,
+        json={"body": "Sorun çözüldü, kontrol edin"},
+    )
+    assert resp.status_code == 200
+    assert "new_reply" in sent

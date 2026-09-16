@@ -1668,6 +1668,73 @@ gerçek Firewalla'ya karşı canlı denemeyle kesinleşecek (RDP/SNMP/
 vCenter fazlarındaki aynı desen — muhtemelen gerçek hatalar bulunup
 düzeltilecek).
 
+Faz 77 de tamamlandı: **Bilet Sistemi — Gizli IT İç Notları + Hızlı
+Durum Aksiyonları.** Kullanıcının kurumsal helpdesk spesifikasyonu
+denetlendi: departman/kategori bağlama (Faz 63), REQUESTER RBAC'ı
+(Faz 65), SMTP host/port/TLS-SSL/"Test E-Postası" (Faz 66/66-tamamlama)
+ZATEN vardı — YENİDEN YAZILMADI. Gerçekten eksik olan tek şey,
+`ticket_comments.is_internal` kolonunun (Faz 64'ün geri alınmasından
+şemada kalan) hiçbir kod tarafından kullanılmıyor olmasıydı — artık
+IT ekibi (TECHNICIAN/ADMIN bilet rolü) REQUESTER'ın HİÇ göremeyeceği
+gizli notlar yazabiliyor. `get_ticket_detail`/`list_comments` REQUESTER
+için gizli yorumları YANITTAN TAMAMEN çıkarıyor (yalnızca UI'da
+gizleme değil, API seviyesinde); REQUESTER `is_internal=true`
+göndermeye çalışsa bile servis katmanında sessizce `False`'a
+zorlanıyor; gizli notlar bilet sahibine ASLA e-posta tetiklemiyor.
+`TicketDetailModal.tsx`'e (yalnızca IT ekibine görünen) "Kullanıcıya
+Yanıt"/"🔒 IT İç Not (Gizli)" sekmeleri (mevcut `.tabs`/`.tabButton`
+deseni, Faz 41'den, KOPYALANMADI) + "👤 Üzerime Al"/"🟢 Çözüldü
+İşaretle"/"🔴 Bileti Kapat" hızlı aksiyon barı — YENİ bir backend
+endpoint'i AÇILMADI, mevcut `POST .../comments`'in `status`/
+`assigned_to` alanları preset değerlerle çağrılıyor. Modal genişliği
+kullanıcının istediği `max-w-3xl`'e KÜÇÜLTÜLMEDİ (Faz 65'in "tam
+ekranda çok dar" bugfix'ini geri alırdı) — bilinçli sapma. Backend
+`test_tickets_api.py`'ye 3 yeni test (30/30 geçti), frontend'e bu
+component'in HİÇ olmayan ilk testi `TicketDetailModal.test.tsx` (3
+test) — tam paket 439→442, `tsc`/`eslint` temiz. **Canlı deployment
+YAPILMADI** — `is_internal` kolonu zaten canlı şemada (Faz 64
+kalıntısı, idempotent) olduğundan şema göçü GEREKMİYOR, yalnızca kod
+restart'ı yeterli; kullanıcı onayı bekleniyor.
+
+Faz 78 de tamamlandı: **Setup & Deployment — Bağımsız Kurulum Paketi.**
+Projeyi bu makinenin native `uvicorn`/`next dev` süreçlerinden tamamen
+bağımsız, sıfır bir sunucuya tek komutla kurulabilir hale getirdi.
+Kullanıcının istediği Redis (`AskUserQuestion` ile netleştirildi) VE
+Alembic EKLENMEDİ — proje hiçbir zaman ikisini de kullanmadı (oturumlar
+stateless JWT, e-posta kuyruksuz ateşle-unut, şema tek dosyadan —
+`infra/postgres/init.sql` — `api` servisinin kendisi tarafından
+uygulanıyor, Faz 41'den beri); "migrasyon" adımı bu yüzden deploy
+script'lerinde YOK. Varsayılan Admin `admin/admin123` gibi tahmin
+edilebilir bir parolayla OLUŞTURULMADI — kriptografik olarak güçlü,
+rastgele bir parola üretilip kurulumda BİR KEZ ekrana yazılıyor, mevcut
+`_ensure_bootstrap_admin` mekanizması (Faz 46) AYNEN kullanıldı.
+**Yeni:** `apps/api/Dockerfile` (çok aşamalı, `python:3.12-slim`, `GET
+/api/health` healthcheck'i), `apps/web/Dockerfile` (`next.config.
+ts::output: "standalone"` — YENİ eklendi, yalnızca build çıktı modu,
+dev davranışını etkilemiyor), kök `docker-compose.yml` (web+api+db+
+guacd — `infra/docker-compose.yml`, Faz 48'in dev-destek db+guacd
+dosyası, DEĞİŞTİRİLMEDİ, ikisi AYRI amaçlara hizmet ediyor; `guacd`
+production'da host'a AÇILMIYOR, yalnızca `api`'nin kendi ağından
+erişimi var), kök `.env.example`, `deploy.sh` (Ubuntu — Docker/Compose/
+Git kurulumu + idempotent `.env` üretimi), `deploy.ps1` (Windows Server
+— WSL2 kontrolü/kurulumu, Docker Desktop'ı GUI gerektirdiği için
+OTOMATİK KURMUYOR, Windows Firewall 80/443/8000/4822), `backup.sh`/
+`restore.sh` (konteynerin İÇİNDEN `pg_dump`/`psql`, `.env` KASITLI
+yedeklenmiyor), `DEPLOYMENT.md`. **Gerçek bir bug bulunup düzeltildi:**
+`deploy.ps1`'in ilk yazımı Faz 40'ta ZATEN keşfedilmiş AYNI hatayı
+(em dash'in BOM'suz `.ps1` + PowerShell 5.1'de bir "akıllı tırnak"a
+denk gelip string'i erken sonlandırması) tekrar içeriyordu —
+`[System.Management.Automation.Language.Parser]::ParseFile` ile gerçek
+bir söz dizimi denetiminden geçirilip düzeltildi. `docker compose
+build` bu makinede GERÇEKTEN çalıştırılıp hem `api` hem `web` imajları
+hatasız derlendi (gerçek Docker Engine 29.7.2 bu ortamda mevcut);
+`docker compose config` ile `.env` eksikken zorunlu değişkenlerin
+(`:?` sözdizimi) GERÇEKTEN hata verdiği doğrulandı. **Gerçek bir sunucuya
+uçtan uca canlı kurulum bu increment'e dahil EDİLMEDİ** (bu makinede
+zaten kurulu/canlı bir örnek çalışıyor, ayrı bir "boş" test sunucusu
+yok) — script'ler mantık/söz dizimi + gerçek imaj derlemesi seviyesinde
+doğrulandı.
+
 Faz 10 (Docker — Faz 48'in guacd'si için de aynı engel geçerli) ve
 kalan ileri fazlar (Faz 25 LLDP/CDP gerçek implementasyon, Remote
 Command Execution + Audit'in geri

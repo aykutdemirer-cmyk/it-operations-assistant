@@ -5575,6 +5575,175 @@ Konsolu"nu açmaktır) doğrulanabilir — bu artırımda (RDP/SNMP/vCenter
 fazlarındaki AYNI desenle) muhtemelen gerçek hatalar bulunup
 düzeltilecek.
 
+## Faz 77 — Bilet Sistemi: Gizli IT İç Notları + Hızlı Durum Aksiyonları
+
+**Amaç:** Kullanıcının kurumsal helpdesk spesifikasyonunu mevcut Faz
+62-69 mimarisine karşı denetleyip yalnızca GERÇEKTEN eksik olan
+parçaları eklemek — departman/kategori bağlama (Faz 63), REQUESTER
+RBAC'ı (Faz 65) ve SMTP entegrasyonu (Faz 66/66-tamamlama) zaten
+tamamdı, YENİDEN YAZILMADI.
+
+**Kapsam denetimi (spesin neyi zaten karşıladığı):** `/api/v1/...`
+AÇILMADI (proje hiç kullanmadı); departman/kategori dinamik yönetimi
+zaten Faz 63'te var; `created_by_user_id == current_user.id` REQUESTER
+kısıtı zaten Faz 65'te `get_ticket_detail`/`add_comment`'te 403 olarak
+var; SMTP host/port/kullanıcı/parola/from/TLS-SSL ayarları + "Test
+E-Postası Gönder" zaten Faz 66/66-tamamlama'da `/settings`'te var.
+
+**Gerçekten eksik olan (bu fazın kapsamı):**
+1. `ticket_comments.is_internal` kolonu şemada duruyordu (Faz 64'ün
+   geri alınmasından kalan) ama HİÇBİR kod ona referans vermiyordu —
+   IT ekibinin (TECHNICIAN/ADMIN bilet rolü) REQUESTER'ın hiç
+   göremeyeceği gizli notlar yazması artık gerçekten çalışıyor.
+2. Detay modalına IT ekibi için üç hızlı aksiyon butonu ("Üzerime Al"/
+   "Çözüldü İşaretle"/"Bileti Kapat") — YENİ bir backend endpoint'i
+   AÇILMADI, mevcut `POST .../comments` (status/assigned_to alanları)
+   doğrudan preset değerlerle çağrılıyor.
+
+**Backend:** `app/tickets/models.py` — `TicketCommentCreateRequest.
+is_internal: bool = False`, `TicketCommentResponse.is_internal: bool`.
+`app/db/tickets.py::insert_comment` yeni `is_internal` parametresi
+alıp kaydediyor; `list_comments(..., include_internal: bool)` —
+`False` iken `is_internal = false` filtresi uyguluyor. `app/tickets/
+service.py::get_ticket_detail` REQUESTER için (`include_internal=
+_is_it_staff(actor)`) gizli notları YANITTAN TAMAMEN çıkarıyor (yalnızca
+UI'da gizlemek DEĞİL — API seviyesinde). `add_comment` REQUESTER'dan
+`is_internal=true` gelirse sessizce `False`'a zorluyor (savunma
+katmanı — frontend zaten bu sekmeyi REQUESTER'a göstermiyor). Gizli
+notlar bilet sahibine ASLA e-posta bildirimi tetiklemiyor (`_notify_
+owner` çağrısı `not is_internal` koşuluyla korunuyor) — "created"/
+"status_change"/"assignment" olayları her zaman görünür kalıyor
+(zaman çizelgesi bütünlüğü bozulmadı).
+
+**Frontend:** `TicketDetailModal.tsx` — IT ekibi görünce yanıt kutusunun
+üstünde mevcut `.tabs`/`.tabButton`/`.tabButtonActive` deseniyle (Faz
+41'den, KOPYALANMADI) iki sekme ("Kullanıcıya Yanıt" / "🔒 IT İç Not
+(Gizli)"); gönderim `is_internal: replyTab === "internal"` taşıyor.
+Zaman çizelgesinde gizli bir yorum turuncu (`--status-degraded`) sol
+kenarlık + "🔒 Gizli İç Not" rozetiyle ayırt ediliyor. Başlığın altına
+(yalnızca IT ekibi) mevcut `.actionsCell`/`.actionButton`/
+`.actionButtonDanger` sınıflarıyla üç buton — zaten mevcut olan durum/
+atama `<select>`'lerin YERİNE DEĞİL, YANINA (ikisi de kalıyor, hızlı
+yol + ince ayar birlikte). Modal genişliği KÜÇÜLTÜLMEDİ — Faz 65'in
+"tam ekranda çok dar" bugfix'i `min(1040px, 96vw)`'a çıkarmıştı,
+kullanıcının istediği `max-w-3xl` (768px) o bugfix'i GERİ ALIRDI;
+bilinçli sapma. Tailwind sınıfları (`w-full min-h-[100px] resize-y`)
+KULLANILMADI — proje CSS Modules + inline style kullanıyor (Faz 65'te
+zaten `width:100%`/`minHeight:120`/`resize:"vertical"` olarak
+karşılanmıştı, değişmedi).
+
+**Kapsam dışı:** Departman/kategori/SMTP — zaten var, dokunulmadı.
+
+**Testler:** Backend `tests/test_tickets_api.py`'ye 3 yeni test (gizli
+not REQUESTER'dan gizleniyor + e-posta tetiklemiyor, REQUESTER kendi
+yorumunu gizli işaretleyemiyor, görünür yanıt hâlâ bildirim
+tetikliyor) — 30/30 geçti. Frontend'e yeni `tests/TicketDetailModal.
+test.tsx` (3 test — önceden bu component'in HİÇ testi yoktu) + tam
+paket 439→442 test, `tsc`/`eslint` temiz.
+
+**Tamamlanma kriterleri:** Karşılandı. **Canlı deployment YAPILMADI**
+— `is_internal` kolonu zaten canlı şemada var (Faz 64 kalıntısı,
+idempotent), bu yüzden şema göçü GEREKMİYOR; yalnızca backend/frontend
+kod restart'ı yeterli, kullanıcı onayı bekleniyor.
+
+## Faz 78 — Setup & Deployment: Bağımsız Kurulum Paketi
+
+**Amaç:** Projeyi mevcut geliştirme ortamından (bu makinede native
+`uvicorn`/`next dev` süreçleri + yarı-Dockerize `infra/docker-
+compose.yml`) tamamen bağımsız olarak, sıfır bir şirket/sunucuya tek
+komutla kurulabilir hale getirmek.
+
+**Kullanıcı kararı (`AskUserQuestion` ile netleştirildi):** Spesifikasyon
+Redis'i "oturum yönetimi ve e-posta kuyrukları için" istiyordu — proje
+bunların HİÇBİRİNİ Redis'siz de yapmıyor DEĞİL, zaten hiç kullanmıyor
+(oturumlar stateless JWT — Faz 46, e-posta zaten kuyruksuz ateşle-unut
+— Faz 65/66). Kullanıcı "Redis'i EKLEME" seçeneğini onayladı — hiçbir
+koda bağlı olmayan boş bir container CLAUDE.md'nin "gereksiz kaynak
+ekleme" kuralını ihlal ederdi.
+
+**Diğer bilinçli sapmalar (sormaya gerek kalmadan, proje mimarisinin
+kendisinden kaynaklı):**
+- **Alembic KULLANILMADI** — proje 78 faz boyunca hiç ORM/migration
+  aracı kullanmadı (`docs/decisions.md`, `CLAUDE.md` — "ORM yok").
+  "Migrasyon" adımı gerçekte YOKTUR: şema tek bir dosyadan (`infra/
+  postgres/init.sql`) gelir ve `api` servisi başlarken KENDİSİ uygular
+  (`app/main.py::_ensure_schema_once`, Faz 41'den beri var, GERÇEK
+  kod). Deploy script'leri bu yüzden ayrı bir migrasyon adımı
+  ÇALIŞTIRMAZ — servisleri ayağa kaldırmak yeterlidir.
+- **Varsayılan Admin `admin/admin123` OLUŞTURULMADI** — tahmin
+  edilebilir bir parola bu projenin JWT_SECRET_KEY/PAM_VAULT_SECRET_KEY
+  için asla yapmadığı bir şey olurdu (ikisi de KASITLI olarak zayıf bir
+  varsayılana düşmek yerine hata verir, bkz. Faz 46). Deploy script'leri
+  kriptografik olarak güçlü, rastgele bir parola üretip BİR KEZ ekrana
+  yazar; backend'in mevcut `_ensure_bootstrap_admin` mekanizması
+  (`BOOTSTRAP_ADMIN_USERNAME`/`PASSWORD` env'i, `users` tablosu boşken
+  tek seferlik) AYNEN kullanıldı — yeni bir "seed script" YAZILMADI.
+- **`infra/docker-compose.yml` (yalnızca db+guacd, dev-destek dosyası,
+  Faz 48'den) DEĞİŞTİRİLMEDİ** — kök dizinde YENİ, ayrı bir production
+  `docker-compose.yml` (web+api+db+guacd) oluşturuldu. İki dosya
+  KARIŞTIRILMAMALI: `infra/`'daki, backend/frontend'in bu makinede
+  native process olarak çalıştığı GELİŞTİRME akışı için hâlâ geçerli;
+  kök dizindeki, "sıfırdan bağımsız kurulum" için TÜM sistemi
+  konteynerleştirir.
+
+**Kapsam:**
+1. **`apps/api/Dockerfile`** (çok aşamalı, `python:3.12-slim`) — build
+   context REPO KÖKÜ olmalı, çünkü `app/db/assets.py::_SCHEMA_SQL_PATH`
+   `infra/postgres/init.sql`'i `__file__`'dan GÖRELİ (`parents[4]`)
+   okuyor; imaj içinde `/app/infra` + `/app/apps/api` AYNI göreli
+   derinlikte durur. `GET /api/health` ile gerçek bir `HEALTHCHECK`.
+2. **`apps/web/Dockerfile`** — `next.config.ts`'e (bu görevde eklendi)
+   `output: "standalone"` sayesinde küçük bir production imajı; dev
+   davranışını ETKİLEMEZ (yalnızca `next build` çıktı modu).
+3. **Kök `docker-compose.yml`** — `db` (postgres:16-alpine, `pg_isready`
+   healthcheck + init.sql'in ilk-kurulum kolaylığı olarak da mount
+   edilmesi), `guacd` (Faz 48'den AYNI imaj, ama production'da HOST'A
+   AÇILMAZ — yalnızca `api`'nin kendi ağından erişimi var, en az yüzey
+   ilkesi), `api`, `web`. Tüm gerçek env değişkenleri (JWT/Fernet/SMTP/
+   LDAP/guacd yolları) mevcut `apps/api/.env.example`'daki AYNI
+   isimlerle taşınıyor — yeni bir isimlendirme UYDURULMADI.
+4. **Kök `.env.example`** — yalnızca konteynerleştirilmiş dağıtım için
+   gereken değişkenler (`apps/api/.env.example`'ın YERİNE DEĞİL,
+   YANINA).
+5. **`deploy.sh`** (Ubuntu/Linux) — Docker/Compose/Git kurulum kontrolü,
+   idempotent `.env` üretimi (rastgele sırlar), `data/` dizinleri,
+   `docker compose up -d --build`, sağlık bekleme.
+6. **`deploy.ps1`** (Windows Server) — WSL2 kontrolü/kurulumu, Docker
+   Desktop'ın VARLIĞINI kontrol eder (GUI kurulum gerektirdiği için
+   OTOMATİK KURMAZ, resmi bağlantıyı verir), Windows Firewall'da 80/
+   443/8000/4822, aynı idempotent `.env` üretimi.
+7. **`backup.sh`/`restore.sh`** — çalışan `db` konteynerinin İÇİNDEN
+   `pg_dump`/`psql` (ayrı bir PostgreSQL istemcisi GEREKMEZ) + PAM
+   oturum kaydı/sürücü dosyaları (`./data/`). `.env` KASITLI olarak
+   yedeklenmiyor (sırlar ayrı, daha güvenli saklanmalı — `restore.sh`
+   YIKICI olduğu için açık `EVET` onayı ister).
+8. **`DEPLOYMENT.md`** — sunucu gereksinimleri, tek komutla kurulum,
+   ilk giriş + LDAP/vCenter/SMTP/PAM kurulumu sonrası adımlar, yedekleme/
+   geri yükleme, güvenlik notları, sorun giderme.
+
+**Gerçek doğrulama:** `deploy.ps1`'in ilk yazımı gerçek bir sözdizimi
+hatası içeriyordu — Faz 40'ta ZATEN keşfedilmiş AYNI bug (em dash'in
+BOM'suz `.ps1` + PowerShell 5.1'de bir "akıllı tırnak"a denk gelip
+string'i erken sonlandırması) buraya da SIZMIŞTI; `[System.Management.
+Automation.Language.Parser]::ParseFile` ile gerçek bir sözdizimi
+denetiminden geçirilip düzeltildi (tüm em dash'ler kaldırıldı). `docker
+compose build` bu makinede GERÇEKTEN çalıştırılıp hem `api` hem `web`
+imajları hatasız derlendi (gerçek Docker Engine 29.7.2, bu ortamda
+mevcut — `infra/docker-compose.yml`'in Faz 48 notundaki "Docker
+kurulu değil" kısıtı bu oturumda artık geçerli değil). `docker compose
+config` ile gerekli/zorunlu değişkenlerin (`:?` sözdizimi) `.env`
+eksikken GERÇEKTEN hata verdiği doğrulandı (sessiz/boş bir sırla
+başlamıyor). `bash -n` ile üç shell script'in söz dizimi doğrulandı.
+**Gerçek bir sunucuya uçtan uca canlı kurulum (deploy.sh/deploy.ps1'in
+GERÇEK bir boş makinede çalıştırılması) bu increment'e dahil EDİLMEDİ**
+— bu makine zaten kurulu/canlı bir örneği barındırıyor, ayrı bir "boş"
+test sunucusu yok; script'ler mantık/söz dizimi + gerçek imaj derlemesi
+seviyesinde doğrulandı.
+
+**Kapsam dışı:** TLS/443 (kendi ters proxy'niz gerekir, sahte sertifika
+uydurulmadı), Kubernetes/Helm (yalnızca Docker Compose istendi), CI/CD
+pipeline'ı (yalnızca kurulum script'i istendi).
+
 ## İleri Fazlar (kapsam dışı, yalnızca referans)
 
 Bu fazlar için henüz detaylı plan çıkarılmamıştır; MVP tamamlandıktan
