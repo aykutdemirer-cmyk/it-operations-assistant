@@ -1,0 +1,377 @@
+/* Faz 48 — CyberArk/Teleport tarzı PAM oturum ekranı. Projenin geri
+   kalanı `lib/theme/ThemeProvider.tsx`'in açık/koyu temasını takip
+   eder — bu sayfa KASITLI olarak sabit koyu (immersive/distraction-
+   free "session screen") kalıyor, tıpkı CyberArk/Teleport'un oturum
+   ekranlarının kendi temasının geri kalan UI'dan bağımsız olması gibi.
+   Tailwind/Shadcn EKLENMEDİ (bkz. component docstring'i) — aynı görsel
+   sonuç düz CSS ile üretiliyor. */
+
+.page {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  background-color: #020617; /* slate-950 */
+  color: #f1f5f9; /* slate-100 */
+}
+
+.backLink {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  color: #cbd5f5;
+  background-color: rgba(15, 23, 42, 0.7);
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  text-decoration: none;
+}
+
+.backLink:hover {
+  background-color: rgba(30, 41, 59, 0.85);
+}
+
+.stage {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.canvasFrame {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  background-color: #000;
+  border: 1px solid #1e293b; /* slate-800 */
+  border-radius: 12px;
+  overflow: auto;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.canvasFrame:fullscreen {
+  border-radius: 0;
+  border: none;
+}
+
+.canvasInner {
+  display: flex;
+}
+
+/* ---- Yüzen camsı (glassmorphic) araç çubuğu ---- */
+
+.toolbar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  color: #e2e8f0; /* slate-200 */
+  background-color: rgba(15, 23, 42, 0.85); /* slate-900/85 */
+  border: 1px solid #1e293b; /* slate-800 */
+  border-radius: 12px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  max-width: calc(100% - 32px);
+  flex-wrap: wrap;
+}
+
+.statusGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.statusDotConnected {
+  background-color: #22c55e; /* green-500 */
+  box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6);
+  animation: pulse-green 2s infinite;
+}
+
+.statusDotConnecting {
+  background-color: #eab308; /* yellow-500 */
+}
+
+.statusDotError {
+  background-color: #ef4444; /* red-500 */
+}
+
+@keyframes pulse-green {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+  }
+}
+
+.deviceName {
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.deviceIp {
+  color: #94a3b8; /* slate-400 */
+  font-family: var(--font-geist-mono, monospace);
+  font-size: 0.78rem;
+}
+
+.divider {
+  width: 1px;
+  height: 20px;
+  background-color: #1e293b;
+  flex-shrink: 0;
+}
+
+.countdown {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  color: #cbd5f5;
+  white-space: nowrap;
+}
+
+.countdownWarning {
+  color: #f59e0b; /* amber-500 */
+}
+
+.toolbarActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbarButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #e2e8f0;
+  background-color: rgba(30, 41, 59, 0.6); /* slate-800/60 */
+  border: 1px solid #334155; /* slate-700 */
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.toolbarButton:hover:not(:disabled) {
+  background-color: rgba(51, 65, 85, 0.8);
+}
+
+.toolbarButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.exitButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #f87171; /* red-400 */
+  background-color: rgba(239, 68, 68, 0.15); /* red-500/15 */
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.exitButton:hover {
+  background-color: rgba(220, 38, 38, 0.35);
+  color: #fecaca;
+}
+
+/* ---- Yüklenme katmanı ---- */
+
+.loaderOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  background-color: rgba(2, 6, 23, 0.92);
+  transition: opacity 0.4s ease;
+}
+
+.loaderOverlayHidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loaderRing {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loaderSpinner {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid #1e293b;
+  border-top-color: #38bdf8; /* sky-400 */
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loaderIcon {
+  color: #38bdf8;
+}
+
+.loaderText {
+  max-width: 360px;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.loaderTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.errorBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  text-align: center;
+  color: #fca5a5; /* red-300 */
+  max-width: 420px;
+}
+
+.closedBox {
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+/* ---- Faz 74 — Sürükle-bırak dosya yükleme + Dosya Transferi paneli ---- */
+
+.dropOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(15, 23, 42, 0.85);
+  border: 2px dashed #38bdf8; /* sky-400 */
+  border-radius: 12px;
+  pointer-events: none;
+}
+
+.dropOverlayText {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.filesPanel {
+  position: absolute;
+  top: 64px;
+  right: 16px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  width: 260px;
+  max-height: 320px;
+  overflow-y: auto;
+  font-size: 0.8rem;
+  color: #e2e8f0;
+  background-color: rgba(15, 23, 42, 0.9);
+  border: 1px solid #1e293b;
+  border-radius: 10px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.filesPanelTitle {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.uploadRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid #1e293b;
+}
+
+.uploadRow:last-child {
+  border-bottom: none;
+}
+
+.uploadName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uploadStatusDone {
+  color: #4ade80; /* green-400 */
+}
+
+.uploadStatusError {
+  color: #fca5a5; /* red-300 */
+}
+
+.uploadStatusPending {
+  color: #94a3b8;
+}

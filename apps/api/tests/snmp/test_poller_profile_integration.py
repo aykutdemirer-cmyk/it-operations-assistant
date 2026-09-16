@@ -79,9 +79,20 @@ async def test_poll_all_uses_db_assigned_profile(isolated_db, monkeypatch):
     assert batch.results[0].status == "success"
     mock_poll.assert_called_once()
     # Poll her zaman asset'in GERÇEK IP'sine gider — profile.target_host
-    # (burada boş) hiç kullanılmaz.
+    # (burada boş) hiç kullanılmaz. `called_host` bir DÜZ STRING olmalı
+    # — `assets.ip_address` (INET) asyncpg'den bir `ipaddress.
+    # IPv4Address` NESNESİ olarak gelir (bkz. `poller.py::_poll_one`'daki
+    # `str(...)` düzeltmesinin gerekçesi — gerçek kullanıcı bildirimiyle
+    # bulunan bir hata: bu dönüşüm OLMADAN pysnmp'nin `slim.get()`'i
+    # `TypeError: argument of type 'IPv4Address' is not a container or
+    # iterable` ile çöküyordu, DB'den gelen HİÇBİR asset asla gerçekten
+    # poll edilemiyordu). Bu assertion BİLE ÖNCEDEN yanlışlıkla
+    # geçiyordu — `called_host` de dönüştürülmemiş bir `IPv4Address`
+    # olduğu için `==` iki eşit nesneyi karşılaştırıp True dönüyordu;
+    # gerçek TİP hiç kontrol edilmiyordu.
     called_profile, called_host, called_asset_id = mock_poll.call_args.args
-    assert called_host == asset["ip_address"]
+    assert called_host == str(asset["ip_address"])
+    assert isinstance(called_host, str)
     assert called_asset_id == asset["id"]
 
 

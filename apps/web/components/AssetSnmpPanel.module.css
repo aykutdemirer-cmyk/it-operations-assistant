@@ -106,7 +106,8 @@
   max-width: 320px;
 }
 
-.field select {
+.field select,
+.field input {
   padding: 8px 10px;
   font-size: 0.85rem;
   color: var(--text-primary);

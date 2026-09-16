@@ -138,7 +138,20 @@ class PollingEngine:
         self, asset: dict, semaphore: asyncio.Semaphore, profile: object | None
     ) -> SNMPPollResult:
         asset_id: UUID = asset["id"]
-        host: str = asset["ip_address"]
+        # `assets.ip_address` sütunu `INET` — asyncpg bunu Python
+        # `ipaddress.IPv4Address`/`IPv6Address` NESNESİNE decode eder,
+        # düz bir `str`'e DEĞİL (tip anotasyonu `str` olsa da çalışma
+        # zamanında gerçek tip bu değildir — Python anotasyonu
+        # ZORUNLU KILMAZ). Gerçek kullanıcı bildirimiyle bulunan bir
+        # hata: `str()` OLMADAN pysnmp'nin `slim.get()`'i `":" in
+        # address` yaparken `TypeError: argument of type 'IPv4Address'
+        # is not a container or iterable` ile çöküyordu — bu yüzden
+        # DB'den gelen HİÇBİR asset asla gerçekten poll edilemiyordu
+        # (yalnızca `.env` tek-hedef fallback'i, düz bir string olduğu
+        # için, çalışıyordu). `app/snmp/asset_profile_service.py` bu
+        # dönüşümü zaten doğru yapıyordu (bkz. oradaki `str(asset[...])`
+        # kullanımları) — burada da AYNI desen uygulandı.
+        host: str = str(asset["ip_address"])
         try:
             if profile is None:
                 return SNMPPollResult(

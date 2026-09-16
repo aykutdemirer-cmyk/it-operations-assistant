@@ -25,6 +25,17 @@ apps/agent/build-smoketest/
 # OUI dataset: yalnızca işlenmiş oui.json commit edilir, ham CSV değil
 apps/api/app/discovery/data/oui_raw.csv
 
+# Faz 50 — PAM Oturum Kaydı (Session Recording). guacd'nin buraya
+# yazdığı `.guac` dosyaları GERÇEK RDP oturumu ekran kayıtları —
+# hassas içerik, asla commit edilmez (bkz. infra/docker-compose.yml
+# guacd volume mount'u, apps/api/.env::PAM_RECORDING_HOST_DIR).
+apps/api/logs/recordings/
+
+# Canlı production backend'in çalışma zamanı stdout/stderr çıktısı
+# (nohup ile başlatılırken yönlendirilir) — kaynak kod değil, commit
+# edilmez.
+apps/api/backend_restart.log
+
 # Node / Next.js
 node_modules/
 apps/web/.next/

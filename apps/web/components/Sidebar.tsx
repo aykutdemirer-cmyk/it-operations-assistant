@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 
+import { useAuth } from "@/lib/auth/AuthProvider";
+import type { Permission } from "@/lib/auth/permissions";
 import { useLocale } from "@/lib/i18n/LocaleProvider";
 import styles from "./Sidebar.module.css";
 
@@ -12,6 +14,7 @@ type NavItem = {
   label: string;
   href: string;
   icon: string;
+  permission: Permission;
 };
 
 type NavGroup = {
@@ -24,38 +27,66 @@ export function Sidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { t } = useLocale();
+  const { currentUser } = useAuth();
 
-  const groups: NavGroup[] = [
+  // Faz 47 — kullanıcının açık isteği: menü artık statik DEĞİL, her
+  // öğe kullanıcının `permissions` listesine göre dinamik filtrelenir
+  // ("yalnızca PAM_ACCESS'i olan bir kullanıcı Dashboard dahil hiçbir
+  // menüyü görmesin"). `currentUser` `null` iken (giriş yapılmamış/
+  // token doğrulanıyor) HİÇBİR öğe gösterilmez.
+  const allGroups: NavGroup[] = [
     {
       key: "overview",
       label: t.nav.groupOverview,
-      items: [{ key: "dashboard", label: t.nav.dashboard, href: "/", icon: "📊" }],
+      items: [{ key: "dashboard", label: t.nav.dashboard, href: "/", icon: "📊", permission: "DASHBOARD_VIEW" }],
     },
     {
       key: "discovery",
       label: t.nav.groupDiscovery,
       items: [
-        { key: "discovery", label: t.nav.discovery, href: "/discovery", icon: "🔍" },
-        { key: "assets", label: t.nav.assets, href: "/assets", icon: "🗂️" },
-        { key: "topology", label: t.nav.topology, href: "/topology", icon: "🕸️" },
-        { key: "scans", label: t.nav.scans, href: "/scans", icon: "🕓" },
+        { key: "discovery", label: t.nav.discovery, href: "/discovery", icon: "🔍", permission: "DISCOVERY_VIEW" },
+        { key: "assets", label: t.nav.assets, href: "/assets", icon: "🗂️", permission: "ASSETS_VIEW" },
+        { key: "topology", label: t.nav.topology, href: "/topology", icon: "🕸️", permission: "TOPOLOGY_VIEW" },
+        { key: "scans", label: t.nav.scans, href: "/scans", icon: "🕓", permission: "SCANS_VIEW" },
+        { key: "vcenter", label: t.nav.vcenter, href: "/vcenter", icon: "☁️", permission: "VCENTER_VIEW" },
       ],
     },
     {
       key: "operations",
       label: t.nav.groupOperations,
       items: [
-        { key: "alerts", label: t.nav.alerts, href: "/alerts", icon: "🚨" },
-        { key: "monitoring", label: t.nav.monitoring, href: "/monitoring", icon: "📈" },
-        { key: "agents", label: t.nav.agents, href: "/agents", icon: "🖥️" },
+        { key: "alerts", label: t.nav.alerts, href: "/alerts", icon: "🚨", permission: "ALERTS_VIEW" },
+        { key: "monitoring", label: t.nav.monitoring, href: "/monitoring", icon: "📈", permission: "MONITORING_VIEW" },
+        { key: "agents", label: t.nav.agents, href: "/agents", icon: "🖥️", permission: "AGENTS_VIEW" },
+        { key: "tickets", label: t.nav.tickets, href: "/tickets", icon: "🎫", permission: "TICKETS_VIEW" },
+        { key: "my-access", label: t.pam.myAccessTitle, href: "/my-access", icon: "🔑", permission: "PAM_ACCESS" },
       ],
     },
     {
       key: "system",
       label: t.nav.groupSystem,
-      items: [{ key: "settings", label: t.nav.settings, href: "/settings", icon: "⚙️" }],
+      items: [{ key: "settings", label: t.nav.settings, href: "/settings", icon: "⚙️", permission: "SETTINGS_VIEW" }],
+    },
+    {
+      key: "pam",
+      label: t.nav.groupPam,
+      items: [
+        { key: "pam-users", label: t.nav.pamUsers, href: "/pam/users", icon: "👤", permission: "PAM_ADMIN" },
+        { key: "pam-permissions", label: t.nav.pamPermissions, href: "/pam/permissions", icon: "📊", permission: "PAM_ADMIN" },
+        { key: "pam-vault", label: t.nav.pamVault, href: "/pam/vault", icon: "🔐", permission: "PAM_ADMIN" },
+        { key: "pam-rules", label: t.nav.pamRules, href: "/pam/rules", icon: "🗝️", permission: "PAM_ADMIN" },
+        { key: "pam-requests", label: t.nav.pamRequests, href: "/pam/requests", icon: "📩", permission: "PAM_ADMIN" },
+        { key: "pam-tags", label: t.nav.pamTags, href: "/pam/tags", icon: "🏷️", permission: "PAM_ADMIN" },
+        { key: "pam-groups", label: t.nav.pamGroups, href: "/pam/groups", icon: "🗂️", permission: "PAM_ADMIN" },
+        { key: "pam-audit", label: t.nav.pamAudit, href: "/pam/audit", icon: "📜", permission: "PAM_ADMIN" },
+      ],
     },
   ];
+
+  const permissions = currentUser?.permissions ?? [];
+  const groups = allGroups
+    .map((group) => ({ ...group, items: group.items.filter((item) => permissions.includes(item.permission)) }))
+    .filter((group) => group.items.length > 0);
 
   function isActive(href: string): boolean {
     // `/agents/[id]` gibi alt route'lar da (Faz 30) kendi ana menü

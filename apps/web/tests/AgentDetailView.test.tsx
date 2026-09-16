@@ -31,17 +31,26 @@ const BASE_AGENT_DETAIL = {
   inventory: null,
 };
 
-function mockAgentDetail(detail: unknown, status = 200) {
+function mockAgentDetail(detail: unknown, status = 200, assets: unknown[] = []) {
   vi.stubGlobal(
     "fetch",
     vi.fn((url: string) => {
       if (url.includes(`/api/agents/${AGENT_ID}`)) {
         return Promise.resolve({ ok: status < 400, status, json: async () => detail });
       }
+      if (url.includes("/api/assets")) {
+        return Promise.resolve({ ok: true, json: async () => assets });
+      }
       return Promise.resolve({ ok: true, json: async () => [] });
     }),
   );
 }
+
+// Faz 60 — PAM RDP/SSH butonları yalnızca agent GERÇEK bir cihaza
+// bağlıysa (`agent.asset_id`) gösterilir; DashboardData'dan gelen
+// `assets` listesinde eşleşen kayıt olmalı.
+const LINKED_ASSET_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const LINKED_ASSET = { id: LINKED_ASSET_ID, hostname: "win-server-01.lab.local", ip_address: "10.0.213.30" };
 
 describe("AgentDetailView", () => {
   it("shows overview fields for a real agent", async () => {
@@ -416,34 +425,58 @@ describe("AgentDetailView", () => {
     expect(screen.getByText(tr.agentDetails.sessions.noData)).toBeInTheDocument();
   });
 
-  it("shows an RDP download link when local_ip is known", async () => {
-    mockAgentDetail(AGENT_WITH_SESSIONS);
-    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
-
-    await screen.findByRole("heading", { name: "win-server-01" });
-    const rdpLink = screen.getByRole("link", { name: tr.agentDetails.quickConnect.rdp });
-    expect(rdpLink).toHaveAttribute("href", expect.stringContaining(`/api/agents/${AGENT_ID}/connect/rdp`));
-  });
-
-  it("opens the web SSH terminal in a new tab when clicking SSH ile Bağlan", async () => {
+  it("opens the PAM Guacamole RDP page in a new tab when the agent is linked to an asset (Faz 60)", async () => {
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
 
-    mockAgentDetail(AGENT_WITH_SESSIONS);
+    mockAgentDetail({ ...AGENT_WITH_SESSIONS, asset_id: LINKED_ASSET_ID }, 200, [LINKED_ASSET]);
     renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
 
     await screen.findByRole("heading", { name: "win-server-01" });
-    fireEvent.click(screen.getByRole("button", { name: tr.agentDetails.quickConnect.ssh }));
+    fireEvent.click(screen.getByRole("button", { name: tr.agentDetails.quickConnect.rdpConnect }));
+
+    expect(openSpy).toHaveBeenCalledWith(`/pam/session/${LINKED_ASSET_ID}`, "_blank", "noopener,noreferrer");
+  });
+
+  it("opens the PAM zero-knowledge SSH page when clicking SSH Bağlan (Faz 60)", async () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    mockAgentDetail({ ...AGENT_WITH_SESSIONS, asset_id: LINKED_ASSET_ID }, 200, [LINKED_ASSET]);
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("button", { name: tr.agentDetails.quickConnect.sshConnect }));
+
+    expect(openSpy).toHaveBeenCalledWith(`/pam/ssh/${LINKED_ASSET_ID}`, "_blank", "noopener,noreferrer");
+  });
+
+  it("opens the web SSH terminal from the CMD/Terminal button, OS-aware label (Faz 60)", async () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    mockAgentDetail(AGENT_WITH_SESSIONS); // os: "windows"
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("button", { name: tr.agentDetails.quickConnect.cmdWindows }));
 
     expect(openSpy).toHaveBeenCalledWith(`/remote-control/ssh/${AGENT_ID}`, "_blank", "noopener,noreferrer");
   });
 
-  it("shows a disabled state when the agent has no known local IP", async () => {
-    mockAgentDetail({ ...BASE_AGENT_DETAIL, local_ip: null });
+  it("uses the Bash label on the CMD/Terminal button for a Linux agent (Faz 60)", async () => {
+    mockAgentDetail({ ...AGENT_WITH_SESSIONS, os: "linux" });
     renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
 
     await screen.findByRole("heading", { name: "win-server-01" });
-    expect(screen.getByText(tr.agentDetails.quickConnect.unavailable)).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: tr.agentDetails.quickConnect.rdp })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: tr.agentDetails.quickConnect.cmdLinux })).toBeInTheDocument();
+  });
+
+  it("shows a PAM hint (no RDP/SSH buttons) when the agent is not linked to an asset (Faz 60)", async () => {
+    mockAgentDetail({ ...BASE_AGENT_DETAIL, asset_id: null });
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    expect(screen.getByText(tr.agentDetails.quickConnect.pamNeedsLinkedAsset)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: tr.agentDetails.quickConnect.rdpConnect })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: tr.agentDetails.quickConnect.sshConnect })).not.toBeInTheDocument();
   });
 
   // --- Faz 37: Güç ve Oturum Yönetimi ---
@@ -558,5 +591,410 @@ describe("AgentDetailView", () => {
     await openPowerMenu();
 
     expect(screen.getByRole("button", { name: tr.powerActions.wake })).toBeDisabled();
+  });
+
+  // --- Windows Update Tarama Motoru ---
+
+  function mockAgentDetailWithUpdates(detail: unknown, updatesResponse: { status: number; body?: unknown }) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.includes(`/api/agents/${AGENT_ID}/updates`)) {
+          return Promise.resolve({
+            ok: updatesResponse.status < 400,
+            status: updatesResponse.status,
+            json: async () => updatesResponse.body ?? {},
+          });
+        }
+        if (url.includes(`/api/agents/${AGENT_ID}`)) {
+          return Promise.resolve({ ok: true, status: 200, json: async () => detail });
+        }
+        return Promise.resolve({ ok: true, status: 200, json: async () => [] });
+      }),
+    );
+  }
+
+  it("shows a linux-unsupported message on the Windows Updates tab for a Linux agent", async () => {
+    mockAgentDetailWithUpdates({ ...BASE_AGENT_DETAIL, os: "linux" }, { status: 404 });
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+
+    expect(screen.getByText(tr.agentDetails.windowsUpdates.linuxUnsupported)).toBeInTheDocument();
+  });
+
+  it("shows 'never scanned' when the agent has no recorded scan yet", async () => {
+    mockAgentDetailWithUpdates(BASE_AGENT_DETAIL, { status: 404 });
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+
+    expect(await screen.findByText(tr.agentDetails.windowsUpdates.neverScanned)).toBeInTheDocument();
+  });
+
+  it("shows real pending updates from a COM scan", async () => {
+    mockAgentDetailWithUpdates(BASE_AGENT_DETAIL, {
+      status: 200,
+      body: {
+        agent_id: AGENT_ID,
+        collected_at: "2026-09-01T00:00:00Z",
+        scan_method: "com",
+        is_admin: true,
+        updates: [
+          { kb_number: "KB5001234", title: "2026-09 Cumulative Update", description: null, size_bytes: 500_000_000 },
+        ],
+        error: null,
+      },
+    });
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+
+    expect(await screen.findByText("KB5001234")).toBeInTheDocument();
+    expect(screen.getByText("2026-09 Cumulative Update")).toBeInTheDocument();
+    expect(screen.getByText(tr.agentDetails.windowsUpdates.scanMethodLabels.com)).toBeInTheDocument();
+    expect(screen.queryByText(tr.agentDetails.windowsUpdates.fallbackNotice)).not.toBeInTheDocument();
+  });
+
+  it("shows a fallback notice and never mislabels installed hotfixes as pending updates", async () => {
+    mockAgentDetailWithUpdates(BASE_AGENT_DETAIL, {
+      status: 200,
+      body: {
+        agent_id: AGENT_ID,
+        collected_at: "2026-09-01T00:00:00Z",
+        scan_method: "installed_hotfixes",
+        is_admin: true,
+        updates: [{ kb_number: "KB999", title: "Already installed", description: null, size_bytes: null }],
+        error: "COM taraması başarısız oldu: COM not registered",
+      },
+    });
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+
+    expect(await screen.findByText(tr.agentDetails.windowsUpdates.fallbackNotice)).toBeInTheDocument();
+    expect(screen.getByText(tr.agentDetails.windowsUpdates.scanMethodLabels.installed_hotfixes)).toBeInTheDocument();
+  });
+
+  it("shows 'no pending updates' when a COM scan found nothing", async () => {
+    mockAgentDetailWithUpdates(BASE_AGENT_DETAIL, {
+      status: 200,
+      body: {
+        agent_id: AGENT_ID,
+        collected_at: "2026-09-01T00:00:00Z",
+        scan_method: "com",
+        is_admin: true,
+        updates: [],
+        error: null,
+      },
+    });
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+
+    expect(await screen.findByText(tr.agentDetails.windowsUpdates.noUpdates)).toBeInTheDocument();
+  });
+
+  // --- "Güncellemeleri Kontrol Et" butonu ---
+
+  function mockAgentDetailWithCheckUpdatesCommand(commandOutcome: Record<string, unknown>, afterScan: unknown) {
+    let updatesCallCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url.endsWith("/commands") && init?.method === "POST") {
+          return Promise.resolve({
+            ok: true,
+            status: 201,
+            json: async () => ({ id: "cmd-1", status: "pending", result_detail: null, ...JSON.parse(String(init.body)) }),
+          });
+        }
+        if (url.endsWith("/commands")) {
+          return Promise.resolve({ ok: true, status: 200, json: async () => [{ id: "cmd-1", ...commandOutcome }] });
+        }
+        if (url.includes(`/api/agents/${AGENT_ID}/updates`)) {
+          updatesCallCount += 1;
+          // İlk çağrı (mount) — henüz tarama yok; komut başarıyla
+          // tamamlandıktan SONRAki çağrı(lar) — taze sonucu döner.
+          if (updatesCallCount === 1) {
+            return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
+          }
+          return Promise.resolve({ ok: true, status: 200, json: async () => afterScan });
+        }
+        if (url.includes(`/api/agents/${AGENT_ID}`)) {
+          return Promise.resolve({ ok: true, status: 200, json: async () => BASE_AGENT_DETAIL });
+        }
+        return Promise.resolve({ ok: true, status: 200, json: async () => [] });
+      }),
+    );
+  }
+
+  it("submits a check_updates command and refreshes the table on success", async () => {
+    mockAgentDetailWithCheckUpdatesCommand(
+      { status: "succeeded", result_detail: "1 güncelleme bulundu (com)" },
+      {
+        agent_id: AGENT_ID,
+        collected_at: "2026-09-03T12:00:00Z",
+        scan_method: "com",
+        is_admin: true,
+        updates: [{ kb_number: "KB9999999", title: "Fresh scan result", description: null, size_bytes: null }],
+        error: null,
+      },
+    );
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+    expect(await screen.findByText(tr.agentDetails.windowsUpdates.neverScanned)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: tr.agentDetails.windowsUpdates.checkNow }));
+
+    expect(await screen.findByText("KB9999999")).toBeInTheDocument();
+    expect(screen.getByText("Fresh scan result")).toBeInTheDocument();
+  });
+
+  it("shows a loading notice while the check_updates command is in flight", async () => {
+    mockAgentDetailWithCheckUpdatesCommand({ status: "pending" }, null);
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+    fireEvent.click(screen.getByRole("button", { name: tr.agentDetails.windowsUpdates.checkNow }));
+
+    expect(await screen.findByText(tr.agentDetails.windowsUpdates.checking)).toBeInTheDocument();
+  });
+
+  it("shows a failure toast when the check_updates command fails", async () => {
+    mockAgentDetailWithCheckUpdatesCommand(
+      { status: "failed", result_detail: "Hem COM hem PowerShell başarısız oldu" },
+      null,
+    );
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+    fireEvent.click(screen.getByRole("button", { name: tr.agentDetails.windowsUpdates.checkNow }));
+
+    expect(await screen.findByText(tr.agentCommands.failure("Hem COM hem PowerShell başarısız oldu"))).toBeInTheDocument();
+  });
+
+  it("does not show the check-updates button for a Linux agent", async () => {
+    mockAgentDetailWithUpdates({ ...BASE_AGENT_DETAIL, os: "linux" }, { status: 404 });
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+
+    expect(screen.queryByRole("button", { name: tr.agentDetails.windowsUpdates.checkNow })).not.toBeInTheDocument();
+  });
+
+  // --- KB link, açıklama paneli, reboot banner ---
+
+  it("links the KB number to the official Microsoft Support page", async () => {
+    mockAgentDetailWithUpdates(BASE_AGENT_DETAIL, {
+      status: 200,
+      body: {
+        agent_id: AGENT_ID, collected_at: "2026-09-01T00:00:00Z", scan_method: "com", is_admin: true,
+        updates: [{ kb_number: "KB5001234", title: "Update", description: null, size_bytes: null }],
+        error: null, reboot_required: false,
+      },
+    });
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+
+    const link = await screen.findByRole("link", { name: "KB5001234" });
+    expect(link).toHaveAttribute("href", "https://support.microsoft.com/help/5001234");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("expands and collapses the update description on click", async () => {
+    mockAgentDetailWithUpdates(BASE_AGENT_DETAIL, {
+      status: 200,
+      body: {
+        agent_id: AGENT_ID, collected_at: "2026-09-01T00:00:00Z", scan_method: "com", is_admin: true,
+        updates: [{ kb_number: "KB5001234", title: "Cumulative Update", description: "Fixes a security issue.", size_bytes: null }],
+        error: null, reboot_required: false,
+      },
+    });
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+    await screen.findByText("Cumulative Update");
+
+    expect(screen.queryByText("Fixes a security issue.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cumulative Update" }));
+    expect(await screen.findByText("Fixes a security issue.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cumulative Update" }));
+    expect(screen.queryByText("Fixes a security issue.")).not.toBeInTheDocument();
+  });
+
+  it("shows a reboot-required banner with a restart shortcut", async () => {
+    mockAgentDetailWithUpdates(BASE_AGENT_DETAIL, {
+      status: 200,
+      body: {
+        agent_id: AGENT_ID, collected_at: "2026-09-01T00:00:00Z", scan_method: "com", is_admin: true,
+        updates: [], error: null, reboot_required: true,
+      },
+    });
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+
+    expect(await screen.findByText(tr.agentDetails.windowsUpdates.rebootRequiredBanner)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: tr.agentDetails.windowsUpdates.rebootNow }));
+    expect(
+      await screen.findByText(tr.agentCommands.confirmPower("win-server-01", tr.agentCommands.actionReboot)),
+    ).toBeInTheDocument();
+  });
+
+  it("does not show install buttons for installed-hotfixes fallback results", async () => {
+    mockAgentDetailWithUpdates(BASE_AGENT_DETAIL, {
+      status: 200,
+      body: {
+        agent_id: AGENT_ID, collected_at: "2026-09-01T00:00:00Z", scan_method: "installed_hotfixes", is_admin: true,
+        updates: [{ kb_number: "KB999", title: "Already installed", description: null, size_bytes: null }],
+        error: "COM taraması başarısız oldu", reboot_required: false,
+      },
+    });
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+    await screen.findByText("Already installed");
+
+    expect(screen.queryByRole("button", { name: tr.agentDetails.windowsUpdates.installNow })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: tr.agentDetails.windowsUpdates.installAll })).not.toBeInTheDocument();
+  });
+
+  // --- "Şimdi Yükle" / "Tümünü Yükle" ---
+
+  function mockAgentDetailWithInstallCommand(commandOutcome: Record<string, unknown>, afterInstall: unknown) {
+    const scanBefore = {
+      agent_id: AGENT_ID, collected_at: "2026-09-01T00:00:00Z", scan_method: "com", is_admin: true,
+      updates: [{ kb_number: "KB5001234", title: "Cumulative Update", description: null, size_bytes: 500_000_000 }],
+      error: null, reboot_required: false,
+    };
+    let updatesCallCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url.endsWith("/commands") && init?.method === "POST") {
+          return Promise.resolve({
+            ok: true, status: 201,
+            json: async () => ({ id: "cmd-1", status: "pending", result_detail: null, ...JSON.parse(String(init.body)) }),
+          });
+        }
+        if (url.endsWith("/commands")) {
+          return Promise.resolve({ ok: true, status: 200, json: async () => [{ id: "cmd-1", ...commandOutcome }] });
+        }
+        if (url.includes(`/api/agents/${AGENT_ID}/updates`)) {
+          updatesCallCount += 1;
+          if (updatesCallCount === 1) {
+            return Promise.resolve({ ok: true, status: 200, json: async () => scanBefore });
+          }
+          return Promise.resolve({ ok: true, status: 200, json: async () => afterInstall });
+        }
+        if (url.includes(`/api/agents/${AGENT_ID}`)) {
+          return Promise.resolve({ ok: true, status: 200, json: async () => BASE_AGENT_DETAIL });
+        }
+        return Promise.resolve({ ok: true, status: 200, json: async () => [] });
+      }),
+    );
+  }
+
+  it("asks for confirmation before installing a single update, then refreshes on success", async () => {
+    mockAgentDetailWithInstallCommand(
+      { status: "succeeded", result_detail: "1 güncelleme başarıyla yüklendi" },
+      { agent_id: AGENT_ID, collected_at: "2026-09-03T12:00:00Z", scan_method: "com", is_admin: true, updates: [], error: null, reboot_required: false },
+    );
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+    await screen.findByText("Cumulative Update");
+
+    fireEvent.click(screen.getByRole("button", { name: tr.agentDetails.windowsUpdates.installNow }));
+    expect(
+      await screen.findByText(tr.agentDetails.windowsUpdates.confirmInstallOne("KB5001234")),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: tr.agentCommands.confirmButton }));
+
+    expect(await screen.findByText(tr.agentDetails.windowsUpdates.noUpdates)).toBeInTheDocument();
+  });
+
+  it("cancelling the install confirmation submits no command", async () => {
+    const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
+      void init;
+      if (url.includes(`/api/agents/${AGENT_ID}/updates`)) {
+        return Promise.resolve({
+          ok: true, status: 200,
+          json: async () => ({
+            agent_id: AGENT_ID, collected_at: "2026-09-01T00:00:00Z", scan_method: "com", is_admin: true,
+            updates: [{ kb_number: "KB5001234", title: "Cumulative Update", description: null, size_bytes: null }],
+            error: null, reboot_required: false,
+          }),
+        });
+      }
+      if (url.includes(`/api/agents/${AGENT_ID}`)) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => BASE_AGENT_DETAIL });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => [] });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+    await screen.findByText("Cumulative Update");
+
+    fireEvent.click(screen.getByRole("button", { name: tr.agentDetails.windowsUpdates.installNow }));
+    await screen.findByText(tr.agentDetails.windowsUpdates.confirmInstallOne("KB5001234"));
+    fireEvent.click(screen.getByRole("button", { name: tr.agentCommands.cancelButton }));
+
+    expect(screen.queryByText(tr.agentDetails.windowsUpdates.confirmInstallOne("KB5001234"))).not.toBeInTheDocument();
+    expect(fetchSpy.mock.calls.some(([url, init]) => url.endsWith("/commands") && init?.method === "POST")).toBe(false);
+  });
+
+  it("shows the correct confirmation message for Install All", async () => {
+    mockAgentDetailWithInstallCommand({ status: "succeeded", result_detail: "ok" }, null);
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+    await screen.findByText("Cumulative Update");
+
+    fireEvent.click(screen.getByRole("button", { name: tr.agentDetails.windowsUpdates.installAll }));
+    expect(await screen.findByText(tr.agentDetails.windowsUpdates.confirmInstallAll(1))).toBeInTheDocument();
+  });
+
+  it("shows a failure toast when the install_update command fails", async () => {
+    mockAgentDetailWithInstallCommand(
+      { status: "failed", result_detail: "İndirme başarısız oldu (ResultCode=4)" },
+      null,
+    );
+    renderWithDashboardData(<AgentDetailView agentId={AGENT_ID} />);
+
+    await screen.findByRole("heading", { name: "win-server-01" });
+    fireEvent.click(screen.getByRole("tab", { name: tr.agentDetails.tabs.windowsUpdates }));
+    await screen.findByText("Cumulative Update");
+
+    fireEvent.click(screen.getByRole("button", { name: tr.agentDetails.windowsUpdates.installNow }));
+    await screen.findByText(tr.agentDetails.windowsUpdates.confirmInstallOne("KB5001234"));
+    fireEvent.click(screen.getByRole("button", { name: tr.agentCommands.confirmButton }));
+
+    expect(
+      await screen.findByText(tr.agentDetails.windowsUpdates.installFailure("İndirme başarısız oldu (ResultCode=4)")),
+    ).toBeInTheDocument();
   });
 });

@@ -1,18 +1,17 @@
 ##############################################################################
-# IT Operations Assistant — Agent — örnek systemd unit dosyası (Faz 30).
+# IT Operations Assistant — Agent — örnek/referans systemd unit dosyası.
 #
-# Bu dosya YALNIZCA bir REFERANSTIR — bu fazda gerçek bir Linux
-# makineye kurulmadı, `systemctl enable` çalıştırılmadı. Kurulum
-# adımları (bu, dosya kopyalama + servis hesabı oluşturma + gerçek
-# path'leri düzenleme gerektirir) sonraki bir faz kapsamındadır.
+# ARTIK OTOMATİK ÜRETİLİYOR — bkz. `apps/agent/scripts/
+# install_linux_service.sh` (root/sudo ile çalıştırın; kullanıcı/venv/
+# kurulum dizini oluşturma + bu dosyanın GERÇEK path'lerle bir kopyasını
+# `/etc/systemd/system/itops-agent.service`'e yazma + `systemctl
+# daemon-reload/enable/start` hepsini otomatik yapar). Bu dosya
+# yalnızca REFERANS/dokümantasyon amaçlı elle tutuluyor — install
+# script'i kendi unit içeriğini kendisi üretir, ikisi arasında elle
+# senkron tutma GEREKMEZ (script'in ürettiği içerik BİREBİR bu
+# şablonla aynı yapıdadır).
 #
-# Kurulum taslağı (yalnızca referans, otomatik uygulanmadı):
-#   sudo useradd --system --no-create-home itops-agent
-#   sudo cp -r apps/agent /opt/itops-agent
-#   sudo cp deploy/systemd/itops-agent.service /etc/systemd/system/
-#   # ExecStart/WorkingDirectory'deki yolları gerçek kurulum yoluna göre düzenleyin
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable --now itops-agent
+# Elle kaldırmak için: `apps/agent/scripts/uninstall_linux_service.sh`.
 ##############################################################################
 
 [Unit]
@@ -27,8 +26,8 @@ Group=itops-agent
 WorkingDirectory=/opt/itops-agent
 EnvironmentFile=/opt/itops-agent/.env
 ExecStart=/opt/itops-agent/.venv/bin/python -m agent start
-Restart=on-failure
-RestartSec=10
+Restart=always
+RestartSec=5
 
 # Sertleştirme (kurulumun izin verdiği ölçüde) — agent'ın kendi state
 # dosyası dışında dosya sistemine yazma ihtiyacı yok.

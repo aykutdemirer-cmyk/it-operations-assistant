@@ -139,6 +139,122 @@ decisions.md` §15.1 — gerçek bir kullanıcı bildirimiyle bulunan bug'ın
 düzeltmesi). Enrollment/token/kimlik mantığı Faz 31'dekiyle BİREBİR
 AYNI.
 
+## Windows Servisi / systemd Kurulumu
+
+Agent artık her iki platformda da **tek komutla** arka planda,
+makine her açıldığında otomatik başlayan bir servis olarak kurulabilir.
+
+### Windows
+
+**Başka bir bilgisayara kurmak için (bu repoyu/Python'u kurmadan):**
+Backend çalışırken `/settings` sayfasının Agent Configuration
+bölümünde "Windows Servisi Paketi İndir (.zip)" butonuyla önceden
+build edilmiş `itops-agent.exe` + `install_windows_service.ps1` +
+`uninstall_windows_service.ps1` + kısa bir README.txt TEK bir ZIP
+olarak indirilebilir (bkz. `app/agents/download.py::
+build_windows_service_bundle_zip`, backend PyInstaller'ı ASLA
+çalıştırmaz — yalnızca önceden build edilmiş `dist/itops-agent.exe`'yi
+okur). Hedef bilgisayarda: ZIP'i bir klasöre çıkarın, AYNI klasörde
+`BACKEND_URL`/`ENROLLMENT_CODE` içeren bir `.env` oluşturun, Yönetici
+PowerShell'den `install_windows_service.ps1`'i çalıştırın —
+`install_windows_service.ps1` bu senaryoyu otomatik algılar (kaynak
+ağacı yoksa build adımını ATLAR, ZIP'teki hazır EXE'yi doğrudan
+kullanır).
+
+**Bu repodan/kaynak koddan kurmak için (geliştirici/sunucu tarafı):**
+
+```powershell
+# 1. Kurulumdan ÖNCE apps/agent/dist/.env oluşturun:
+mkdir apps\agent\dist -Force
+@"
+BACKEND_URL=http://<backend-adresi>:8000
+ENROLLMENT_CODE=XXX-XXX-XXX
+"@ | Set-Content apps\agent\dist\.env -Encoding utf8
+
+# 2. Yönetici (Administrator) olarak açılan bir PowerShell'de:
+powershell -File apps\agent\scripts\install_windows_service.ps1
+```
+
+Bu tek komut: `packaging\windows\build_service.ps1` ile Agent'ı
+`dist\itops-agent.exe`'ye build eder, `sc.exe create` ile
+`ITOpsAgent` adında, `IT Operations Assistant Telemetry Agent`
+görünen adıyla, **Otomatik (start= auto)** başlangıç türünde bir
+Windows Servisi kaydeder ve hemen başlatır (`sc.exe start`). Servis
+çöktüğünde otomatik yeniden başlaması için `sc.exe failure` ile bir
+restart politikası da ayarlanır (systemd tarafındaki `Restart=always`
+ile aynı ruh).
+
+**Neden düz bir `sc.exe create` + ham EXE YETERLİ DEĞİL:** Windows
+Service Control Manager (SCM), başlattığı sürecin kendi protokolünü
+(`StartServiceCtrlDispatcher`/`SetServiceStatus`) implemente etmesini
+bekler — implemente etmeyen sıradan bir konsol EXE'si `sc start`'ta
+"zamanında yanıt vermedi" hatasıyla başarısız olur VE `sc stop`
+çağrıldığında gerçek bir graceful-shutdown sinyali ALAMAZ (SCM
+timeout sonunda süreci sert şekilde keser). Bu yüzden servis build'i
+(`packaging/windows/IT-Operations-Agent-Service.spec`) ayrı bir giriş
+noktası kullanır: `agent/winservice.py`, `pywin32`'nin
+`win32serviceutil.ServiceFramework`'ünü implemente eder — `SvcStop`
+mevcut `AgentRuntime.stop()` yolunu (aynı `_stop_event` +
+`thread.join(timeout=...)`) çağırır, gerçek bir graceful shutdown
+yapar. `sc.exe create`/`start`/`stop`/`delete` komutlarının kendisi
+DEĞİŞMEDİ — yalnızca EXE'nin içi SCM-uyumlu.
+
+Kaldırmak için:
+
+```powershell
+powershell -File apps\agent\scripts\uninstall_windows_service.ps1
+```
+
+**Gerçek E2E ile doğrulandı** (bu fazda): servis gerçekten kaydedildi,
+`RUNNING` durumuna ulaştı, gerçek bir enrollment koduyla backend'e
+kayıt oldu, heartbeat/telemetry/inventory gönderdi, `sc stop` ile
+GERÇEKTEN graceful durduruldu (log: "SCM stop isteği alındı → Agent
+durdu → Servis durdu" — sert kesme yok) ve `sc delete` ile kaldırıldı;
+test verisi sonra temizlendi.
+
+### Linux (systemd)
+
+```bash
+# 1. Kurulumdan ÖNCE apps/agent/.env oluşturun (BACKEND_URL + ENROLLMENT_CODE)
+cp apps/agent/.env.example apps/agent/.env
+# .env'i düzenleyin
+
+# 2. root/sudo ile:
+sudo bash apps/agent/scripts/install_linux_service.sh
+```
+
+Bu script: `/opt/itops-agent`'a agent kaynağını kopyalar, bir Python
+venv kurar, gerekirse `itops-agent` adında home dizini olmayan bir
+sistem kullanıcısı oluşturur, `/etc/systemd/system/itops-agent.service`
+dosyasını **gerçek path'lerle** üretir (`Restart=always`,
+`RestartSec=5` — çökerse 5sn sonra otomatik yeniden başlar) ve
+`systemctl daemon-reload && systemctl enable && systemctl start` ile
+etkinleştirir. Referans/şablon unit dosyası (artık bu script'in
+ürettiğiyle birebir aynı yapıda) `deploy/systemd/itops-agent.service`
+altında.
+
+Kaldırmak için:
+
+```bash
+sudo bash apps/agent/scripts/uninstall_linux_service.sh
+# kurulum dizinini de tamamen silmek isterseniz:
+sudo bash apps/agent/scripts/uninstall_linux_service.sh --purge
+```
+
+Bu betikler bu ortamda gerçek bir Linux makinesi olmadığı için sözdizimi
+doğrulaması (`bash -n`) ve mantık incelemesiyle doğrulandı — Windows
+tarafındaki gibi tam bir gerçek-makine E2E testi henüz yapılmadı.
+
+### Loglama (her iki platformda)
+
+`start` komutu artık konsola EK OLARAK boyut sınırlı (rotating, 5MB ×
+3 yedek) bir dosyaya da loglar — Windows Servisi/systemd daemon olarak
+çalışırken konsol çıktısının kaybolmasını/kimsenin bakmamasını önler.
+Varsayılan konum: Windows'ta EXE'nin kendi dizininde `agent.log`,
+Linux'ta `WorkingDirectory` altında `agent.log`; `AGENT_LOG_FILE` ile
+elle bir yol belirtilebilir. Dosya yazılamıyorsa (izin/disk hatası)
+agent ÇÖKMEZ, yalnızca konsola bir uyarı loglar.
+
 ## Uzaktan Komut Çalıştırma (Faz 33)
 
 Agent, backend'in `agent_commands` kuyruğunu poll ederek uzaktan
@@ -190,17 +306,16 @@ decisions.md` §17.
   gerektirir (`wmi`/`pywin32` bağımlılığı, bu fazda eklenmedi). Linux'ta
   `/sys/class/dmi/id/*` üzerinden best-effort okunur.
 - **Kurulu yazılım listesi toplanmıyor** (yukarı bkz.).
-- **Windows Service / systemd kurulumu YAPILMADI** — kod yapısal
-  olarak buna uygun (`python -m agent start` blocking, sinyal
-  destekli, `console=True` frozen EXE'de de aynen çalışıyor), ama
-  gerçek `sc.exe create`/`systemctl enable` adımı, code signing ve
-  otomatik güncelleme sonraki fazların kapsamı. Örnek bir systemd unit
-  dosyası `deploy/systemd/itops-agent.service` altında — yalnızca
-  dosya/referans, gerçek bir makineye kurulmadı.
+- **Windows Service / systemd kurulumu artık VAR** (bkz. yukarıdaki
+  "Windows Servisi / systemd Kurulumu" bölümü) — ama code signing ve
+  otomatik güncelleme (servis çalışırken kendi kendini güncelleme)
+  hâlâ kapsam dışı. Linux tarafı gerçek bir makinede DOĞRULANMADI
+  (yalnızca sözdizimi + mantık incelemesi) — Windows tarafı gerçek
+  E2E ile doğrulandı.
 - **Yalnızca Windows EXE packaging var (Faz 32)** — Linux için henüz
   bir paketleme/dağıtım artifact'i (`.deb`/`.rpm`/tek-dosya binary)
-  YOK, yalnızca `python -m agent` ile kaynak koddan çalıştırma
-  destekleniyor.
+  YOK; `install_linux_service.sh` kaynak koddan bir venv kurar,
+  önceden derlenmiş bağımsız bir binary DEĞİL.
 - **LLDP/CDP/uzaktan komut çalıştırma/dosya transferi YOK** — bu agent
   yalnızca bir monitoring/inventory ajanıdır, uzaktan yönetim aracı
   DEĞİLDİR (bkz. Faz 30 kapsam-dışı listesi).
@@ -216,6 +331,13 @@ güvenilirlik riski ve gereksiz kod hacmi yaratırdı. HTTP istemcisi
 (`client.py`) ise BİLİNÇLİ olarak `requests`/`httpx` KULLANMADI —
 stdlib `urllib.request` bu agent'ın basit JSON POST/GET ihtiyacını
 karşılıyor, dış bağımlılık yüzeyini `psutil` ile sınırlı tutuyor.
+
+`pywin32` (`agent/winservice.py`'nin Windows Service Control Manager
+entegrasyonu için) BİLİNÇLİ olarak ana `requirements.txt`'e DEĞİL,
+yalnızca `packaging/windows/requirements-build.txt`'e eklendi —
+Linux'ta hiç mevcut değil ve agent'ın normal çalışma zamanı
+(`python -m agent start`) hiç import etmez, yalnızca Windows Servisi
+EXE build'inde kullanılır.
 
 ## Testler
 

@@ -16,7 +16,12 @@ _DEFAULT_HEARTBEAT_INTERVAL = 30
 _DEFAULT_TELEMETRY_INTERVAL = 30
 _DEFAULT_INVENTORY_INTERVAL = 300
 _DEFAULT_COMMAND_POLL_INTERVAL = 10
-_DEFAULT_STATE_FILE = ".itops-agent-state.json"
+# Windows Update taraması (COM `Search()`) gerçek bir ağ isteği yapabilir
+# (Windows Update sunucularına) — heartbeat/telemetry gibi sık bir
+# aralıkla ÇALIŞTIRILMAMALI. 6 saat, çoğu NOC aracının "periyodik
+# uyumluluk taraması" için makul bir varsayılan.
+_DEFAULT_WINDOWS_UPDATES_INTERVAL = 6 * 60 * 60
+DEFAULT_STATE_FILE_NAME = ".itops-agent-state.json"
 
 
 class ConfigError(Exception):
@@ -38,7 +43,7 @@ class AgentConfig:
     telemetry_interval: int = _DEFAULT_TELEMETRY_INTERVAL
     inventory_interval: int = _DEFAULT_INVENTORY_INTERVAL
     verify_tls: bool = True
-    state_file: Path = field(default_factory=lambda: Path(_DEFAULT_STATE_FILE))
+    state_file: Path = field(default_factory=lambda: Path(DEFAULT_STATE_FILE_NAME))
     max_processes_reported: int = 50
     # Faz 33 — Remote Command Execution. Varsayılan KAPALI (opt-in) —
     # backend'de bir process-kill/service-control komutu oluşsa bile,
@@ -48,6 +53,20 @@ class AgentConfig:
     # ek bir güvenlik katmanı).
     enable_remote_commands: bool = False
     command_poll_interval: int = _DEFAULT_COMMAND_POLL_INTERVAL
+    # Windows Update taraması (`agent/collectors/windows_updates.py`) —
+    # yalnızca Windows'ta anlamlı, Linux'ta `main.py::AgentRuntime.start`
+    # bu döngüyü hiç başlatmaz. Varsayılan AÇIK (salt-okunur bir tarama,
+    # `ENABLE_REMOTE_COMMANDS`'in aksine hiçbir OS durumunu DEĞİŞTİRMEZ)
+    # ama `ENABLE_WINDOWS_UPDATES_SCAN=false` ile kapatılabilir (ör.
+    # Windows Update sunucularına ağ erişimi olmayan izole bir ortamda).
+    enable_windows_updates_scan: bool = True
+    windows_updates_interval: int = _DEFAULT_WINDOWS_UPDATES_INTERVAL
+    # Windows Servisi/systemd daemon olarak çalışırken konsol yok (veya
+    # kimse bakmıyor) — stdout/stderr'e güvenmek yerine boyut sınırlı
+    # (rotating) bir dosyaya da her zaman loglanır. `None` ise
+    # `main.py::_configure_logging` makul bir varsayılan seçer (bkz.
+    # orada dokümante edilen mantık) — burada zorunlu değildir.
+    log_file: Path | None = None
 
     def __repr__(self) -> str:  # pragma: no cover - yalnızca debug/log güvenliği
         token_display = "***" if self.agent_token else None
@@ -96,16 +115,34 @@ def _bool_env(name: str, default: bool) -> bool:
     return raw.strip().lower() not in ("false", "0", "no", "off")
 
 
-def load_config(dotenv_path: Path | None = None) -> AgentConfig:
+def load_config(dotenv_path: Path | None = None, default_state_file: Path | None = None) -> AgentConfig:
     """Yapılandırmayı ortam değişkenlerinden okur. `dotenv_path`
-    verilmezse çalışma dizinindeki `.env` denenir (varsa)."""
+    verilmezse çalışma dizinindeki `.env` denenir (varsa).
+
+    `default_state_file`: `AGENT_STATE_FILE` hiç set edilmemişse
+    kullanılacak yol — çağıran taraf (bkz. `main.py::
+    _default_state_file_path`) frozen bir EXE'de bunu EXE'nin KENDİ
+    dizinine çözer. **Neden önemli:** Windows Service Control Manager
+    (SCM) bir servisi başlatırken süreç CWD'sini genellikle `C:\\
+    Windows\\System32` yapar — bare `Path(".itops-agent-state.json")`
+    (göreli, CWD'ye göre) bu durumda oraya yazılır/okunur, EXE'nin
+    yanına DEĞİL. Gerçek bir Windows Servisi kurulumunda YAKALANDI:
+    agent, System32'de kalmış ESKİ bir state dosyasını okuyup artık
+    geçersiz bir token'la kimlik doğrulaması başarısız oluyordu.
+    Verilmezse (ör. testlerde) eski göreli varsayılan davranış AYNEN
+    korunur."""
     _load_dotenv(dotenv_path or Path(".env"))
 
     backend_url = os.environ.get("BACKEND_URL")
     if not backend_url:
         raise ConfigError("BACKEND_URL zorunlu — ör. http://10.0.213.5:8000")
 
-    state_file_raw = os.environ.get("AGENT_STATE_FILE", _DEFAULT_STATE_FILE)
+    state_file_env = os.environ.get("AGENT_STATE_FILE")
+    if state_file_env:
+        state_file_raw: str | Path = state_file_env
+    else:
+        state_file_raw = default_state_file or DEFAULT_STATE_FILE_NAME
+    log_file_raw = os.environ.get("AGENT_LOG_FILE")
 
     return AgentConfig(
         backend_url=backend_url.rstrip("/"),
@@ -120,4 +157,7 @@ def load_config(dotenv_path: Path | None = None) -> AgentConfig:
         max_processes_reported=_int_env("MAX_PROCESSES_REPORTED", 50),
         enable_remote_commands=_bool_env("ENABLE_REMOTE_COMMANDS", False),
         command_poll_interval=_int_env("COMMAND_POLL_INTERVAL", _DEFAULT_COMMAND_POLL_INTERVAL),
+        log_file=Path(log_file_raw) if log_file_raw else None,
+        enable_windows_updates_scan=_bool_env("ENABLE_WINDOWS_UPDATES_SCAN", True),
+        windows_updates_interval=_int_env("WINDOWS_UPDATES_INTERVAL", _DEFAULT_WINDOWS_UPDATES_INTERVAL),
     )

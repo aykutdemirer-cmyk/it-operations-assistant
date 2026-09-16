@@ -2,11 +2,14 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
-from app.db.assets import ensure_schema, get_connection, upsert_asset
+from app.auth.dependencies import require_role
+from app.db.assets import get_connection, upsert_asset
 from app.db import scans as scans_repo
-from app.discovery.cidr import InvalidCIDRError
+from app.db import scheduled_scans as schedules_repo
+from app.discovery.cidr import InvalidCIDRError, parse_ipv4_cidr
 from app.discovery.schemas import ICMPScanRequest, ScanResult
 from app.discovery.scanner import scan_network
 
@@ -68,7 +71,8 @@ async def persist_scan_result(scan_result: ScanResult) -> None:
     saved = 0
     seen_at = datetime.now(timezone.utc)
     try:
-        await ensure_schema(conn)
+        # Şema artık uygulama başlangıcında tek seferlik kurulur (bkz.
+        # `app/main.py::_ensure_schema_once`).
         for host in up_hosts:
             try:
                 await upsert_asset(
@@ -114,7 +118,6 @@ async def start_scan_record(cidr: str, started_at: datetime) -> UUID | None:
         return None
 
     try:
-        await scans_repo.ensure_schema(conn)
         row = await scans_repo.create_scan(conn, cidr=cidr, started_at=started_at)
         return row["id"]
     except Exception:
@@ -179,3 +182,124 @@ async def fail_scan_record(scan_id: UUID | None, started_at: datetime) -> None:
         logger.exception("Scan geçmişi failed olarak işaretlenemedi: scan_id=%s", scan_id)
     finally:
         await conn.close()
+
+
+# ---- Faz 71 — Zamanlanmış Tarama (Scheduled Discovery) --------------
+# Elle taramanın (`/icmp`) AKSİNE burada `require_role("ADMIN")` var —
+# bu, kalıcı/arka planda kaynak tüketen bir yapılandırma (bkz. roadmap
+# Faz 71 "Bilinçli sapmalar"), tek seferlik elle tarama değil.
+
+
+class ScheduledScanCreateRequest(BaseModel):
+    cidr: str = Field(min_length=1)
+    interval_hours: int = Field(default=24, ge=1, le=8760)
+    enabled: bool = True
+
+
+class ScheduledScanUpdateRequest(BaseModel):
+    cidr: str | None = None
+    interval_hours: int | None = Field(default=None, ge=1, le=8760)
+    enabled: bool | None = None
+
+
+class ScheduledScanResponse(BaseModel):
+    id: UUID
+    cidr: str
+    interval_hours: int
+    enabled: bool
+    last_run_at: datetime | None
+    last_run_status: str | None
+    last_run_error: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+def _schedule_to_response(row) -> ScheduledScanResponse:
+    return ScheduledScanResponse(
+        id=row["id"],
+        cidr=row["cidr"],
+        interval_hours=row["interval_hours"],
+        enabled=row["enabled"],
+        last_run_at=row["last_run_at"],
+        last_run_status=row["last_run_status"],
+        last_run_error=row["last_run_error"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+async def _schedules_connect():
+    try:
+        return await schedules_repo.get_connection()
+    except OSError as exc:
+        logger.warning("PostgreSQL erişilemedi (scheduled scans)")
+        raise HTTPException(status_code=503, detail={"database": "unreachable"}) from exc
+
+
+@router.get("/schedules", response_model=list[ScheduledScanResponse], dependencies=[Depends(require_role("ADMIN"))])
+async def list_schedules_route() -> list[ScheduledScanResponse]:
+    conn = await _schedules_connect()
+    try:
+        rows = await schedules_repo.list_schedules(conn)
+    finally:
+        await conn.close()
+    return [_schedule_to_response(r) for r in rows]
+
+
+@router.post(
+    "/schedules", response_model=ScheduledScanResponse, status_code=201, dependencies=[Depends(require_role("ADMIN"))]
+)
+async def create_schedule_route(payload: ScheduledScanCreateRequest) -> ScheduledScanResponse:
+    try:
+        cidr = str(parse_ipv4_cidr(payload.cidr))
+    except InvalidCIDRError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    conn = await _schedules_connect()
+    try:
+        row = await schedules_repo.insert_schedule(
+            conn, cidr=cidr, interval_hours=payload.interval_hours, enabled=payload.enabled
+        )
+    finally:
+        await conn.close()
+    return _schedule_to_response(row)
+
+
+@router.put(
+    "/schedules/{schedule_id}",
+    response_model=ScheduledScanResponse,
+    dependencies=[Depends(require_role("ADMIN"))],
+)
+async def update_schedule_route(schedule_id: UUID, payload: ScheduledScanUpdateRequest) -> ScheduledScanResponse:
+    unset_fields = payload.model_fields_set
+    cidr = payload.cidr
+    if cidr is not None:
+        try:
+            cidr = str(parse_ipv4_cidr(cidr))
+        except InvalidCIDRError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    conn = await _schedules_connect()
+    try:
+        row = await schedules_repo.update_schedule(
+            conn,
+            schedule_id,
+            cidr=cidr,
+            interval_hours=payload.interval_hours,
+            enabled=payload.enabled,
+            _unset=unset_fields,
+        )
+    finally:
+        await conn.close()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Zamanlama bulunamadı")
+    return _schedule_to_response(row)
+
+
+@router.delete("/schedules/{schedule_id}", status_code=204, dependencies=[Depends(require_role("ADMIN"))])
+async def delete_schedule_route(schedule_id: UUID) -> None:
+    conn = await _schedules_connect()
+    try:
+        deleted = await schedules_repo.delete_schedule(conn, schedule_id)
+    finally:
+        await conn.close()
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Zamanlama bulunamadı")

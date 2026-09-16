@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 
 import { computeAlerts, type AlertSeverity } from "@/lib/alerts";
+import { useDashboardData } from "@/lib/DashboardDataProvider";
 import { useLocale } from "@/lib/i18n/LocaleProvider";
 import type { translations } from "@/lib/i18n/translations";
 import { classifyPortRisk, type PortRisk } from "@/lib/portRisk";
@@ -11,6 +12,7 @@ import { timeAgo } from "@/lib/time";
 import type { Asset } from "@/lib/api";
 import { AssetAgentPanel } from "@/components/AssetAgentPanel";
 import { AssetSnmpPanel } from "@/components/AssetSnmpPanel";
+import { AssetWebConsoleProfilePanel } from "@/components/AssetWebConsoleProfilePanel";
 import styles from "./AssetDetails.module.css";
 
 type Dict = (typeof translations)["tr"];
@@ -22,6 +24,7 @@ type TabKey =
   | "monitoring"
   | "snmp"
   | "agent"
+  | "webconsole"
   | "alerts";
 
 const SEVERITY_CLASS: Record<AlertSeverity, string> = {
@@ -58,7 +61,11 @@ type Props = {
 export function AssetDetails({ asset, onClose }: Props) {
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const { t } = useLocale();
-  const assetAlerts = computeAlerts([asset], t.alertMessages);
+  // Faz 70 — `AssetDetails` `DashboardDataProvider`'ın DIŞINDA `asset`
+  // prop'u alıyor ama provider `app/layout.tsx`'te tüm uygulamayı
+  // sarmaladığı için `useDashboardData()` burada da güvenle çağrılabilir.
+  const { monitoring } = useDashboardData();
+  const assetAlerts = computeAlerts([asset], t.alertMessages, { monitoring });
   const d = t.assetDetails;
 
   const TABS: { key: TabKey; label: string }[] = [
@@ -69,6 +76,11 @@ export function AssetDetails({ asset, onClose }: Props) {
     { key: "monitoring", label: d.tabs.monitoring },
     { key: "snmp", label: d.tabs.snmp },
     { key: "agent", label: d.tabs.agent },
+    // Faz 76 — yalnızca web konsolu buton/sekmesinin göründüğü AYNI
+    // cihaz tipleri (firewall/router) için.
+    ...(asset.device_type === "firewall" || asset.device_type === "router"
+      ? [{ key: "webconsole" as const, label: d.tabs.webconsole }]
+      : []),
     { key: "alerts", label: d.tabs.alerts },
   ];
 
@@ -118,6 +130,35 @@ export function AssetDetails({ asset, onClose }: Props) {
         >
           🕸️ {t.common.viewInTopology}
         </Link>
+
+        {/* Faz 61 — firewall/router cihazlarında PAM CLI/SSH kısayolu.
+            Mevcut `/pam/ssh/{asset_id}` zero-knowledge terminaline (Faz 46)
+            yeni sekmede yönlendirir — yeni bir endpoint/`/api/v1` AÇILMADI.
+            Yetkilendirme hedef sayfada aynen zorunlu: o kullanıcı+asset
+            için `pam_access_rules` + `PAM_ACCESS`; kimlik bilgisi kuralın
+            `credential_id`'sinden gelir ("hesap türü" seçimi YOK).
+            Faz 76 — "Web Konsolu" artık VAR: `/pam/web/{asset_id}`
+            (zero-knowledge HTTPS kimlik enjeksiyonu, Firewalla gibi
+            yalnızca web arayüzü olan cihazlar için) — Faz 61'in kasıtlı
+            ertelediği özellik, ayrı bir faz olarak tamamlandı. */}
+        {(asset.device_type === "firewall" || asset.device_type === "router") && (
+          <div className={styles.pamActions}>
+            <button
+              type="button"
+              className={styles.pamButton}
+              onClick={() => window.open(`/pam/ssh/${asset.id}`, "_blank", "noopener,noreferrer")}
+            >
+              {d.pamCliSsh}
+            </button>
+            <button
+              type="button"
+              className={styles.pamButton}
+              onClick={() => window.open(`/pam/web/${asset.id}`, "_blank", "noopener,noreferrer")}
+            >
+              {d.pamWebConsole}
+            </button>
+          </div>
+        )}
 
         <div className={styles.tabs} role="tablist">
           {TABS.map((tab) => (
@@ -327,6 +368,17 @@ export function AssetDetails({ asset, onClose }: Props) {
             aria-labelledby="asset-tab-agent"
           >
             <AssetAgentPanel assetId={asset.id} />
+          </div>
+        )}
+
+        {activeTab === "webconsole" && (
+          <div
+            className={styles.fields}
+            role="tabpanel"
+            id="asset-panel-webconsole"
+            aria-labelledby="asset-tab-webconsole"
+          >
+            <AssetWebConsoleProfilePanel assetId={asset.id} />
           </div>
         )}
 

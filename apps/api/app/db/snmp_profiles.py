@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID
@@ -33,10 +34,19 @@ RETURNING *;
 
 
 async def get_connection() -> asyncpg.Connection:
-    """`DATABASE_URL`'e bağlanır. `snmp_profiles` tablosunda JSONB kolon
-    yok — `app/db/scans.py::get_connection` ile aynı gerekçe, ayrı bir
-    codec kaydı gerekmiyor."""
-    return await asyncpg.connect(DATABASE_URL, timeout=2)
+    """`DATABASE_URL`'e bağlanır. `snmp_profiles` tablosunun KENDİ
+    kolonlarında JSONB yok, ama bu modülün servis katmanı (`app/snmp/
+    profile_service.py::_auto_assign_if_ip_matches`) GERÇEK bir SNMP
+    bağlantısı doğrulandığında `app/db/assets.py::upsert_asset`'i AYNI
+    bağlantı üzerinden çağırabiliyor (`assets.open_ports`/`evidence`
+    JSONB) — bu yüzden `app/db/assets.py::get_connection` ile AYNI jsonb
+    codec'i burada da kayıtlı olmalı. Gerçek bir kullanıcı hatasıyla
+    (`asyncpg.exceptions.DataError: expected str, got list`) bulunup
+    düzeltildi: codec kayıtlı OLMADAN `upsert_asset`'e çıplak bir Python
+    listesi geçmek asyncpg'nin varsayılan jsonb kodlayıcısını kırıyordu."""
+    conn = await asyncpg.connect(DATABASE_URL, timeout=2)
+    await conn.set_type_codec("jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
+    return conn
 
 
 async def ensure_schema(conn: asyncpg.Connection) -> None:

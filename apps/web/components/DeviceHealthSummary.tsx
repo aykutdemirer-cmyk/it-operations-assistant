@@ -7,10 +7,10 @@ import { useLocale } from "@/lib/i18n/LocaleProvider";
 import styles from "./DeviceHealthSummary.module.css";
 
 export function DeviceHealthSummary() {
-  const { assets, assetsStatus: status } = useDashboardData();
+  const { assets, assetsStatus: status, monitoring } = useDashboardData();
   const { t } = useLocale();
 
-  const alerts = computeAlerts(assets, t.alertMessages);
+  const alerts = computeAlerts(assets, t.alertMessages, { monitoring });
   const health = computeDeviceHealth(assets, alerts);
 
   return (

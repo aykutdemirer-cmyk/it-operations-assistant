@@ -1065,3 +1065,22 @@ iki poll penceresi arasındaki küçük fark normal). Hem backend'in
 sakladığı ham JSON hem web arayüzü ayrı ayrı doğrulandı. Agent test
 suite'ine 5 yeni test eklendi (normalizasyon, 100 üst sınırı, `None`
 değer, `cpu_count()` hatası fallback'i) — 164→169.
+
+## 20. PAM RDP Sürücü Yönlendirme — hedef sunucularda GPO gereksinimi (Faz 74)
+
+Faz 74'ün `enable-drive`/`disable-copy`/`disable-paste` parametreleri
+yalnızca guacd/RDP protokol tarafını AÇAR — hedef Windows sunucunun
+KENDİ Group Policy'si (Bilgisayar Yapılandırması > Yönetim Şablonları >
+Windows Bileşenleri > Uzak Masaüstü Hizmetleri > Uzak Masaüstü Oturum
+Ana Bilgisayarı > Cihaz ve Kaynak Yönlendirme) bunu ENGELLEYEBİLİR.
+Kod bunu tespit EDEMEZ/DÜZELTEMEZ (bu proje hiçbir hedef sunucuya GPO
+uygulamıyor, yalnızca RDP istemci tarafı). Sürücü/pano görünmüyorsa
+kontrol edilmesi gereken iki politika:
+- **"Do not allow drive redirection"** → Not Configured/Disabled
+  olmalı (Enabled ise sürücü paylaşımı sunucu tarafında REDDEDİLİR).
+- **"Do not allow Clipboard redirection"** → aynı şekilde Not
+  Configured/Disabled olmalı.
+
+Bu, `gpedit.msc` (yerel) veya Domain GPO üzerinden hedef sunucuda
+kontrol edilir — PAM tarafında bir ayar/kod DEĞİŞİKLİĞİ gerektirmez.
+değer, `cpu_count()` hatası fallback'i) — 164→169.

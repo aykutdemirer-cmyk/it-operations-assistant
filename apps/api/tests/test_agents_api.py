@@ -645,3 +645,372 @@ async def test_wake_never_requires_agent_to_be_online(client, monkeypatch):
     response = await client.post(f"/api/agents/{registered['agent_id']}/wake")
 
     assert response.status_code == 200
+
+
+# --- Windows Update Tarama Motoru ---
+
+
+def _windows_update_payload(**overrides) -> dict:
+    payload = dict(
+        collected_at=datetime.now(timezone.utc).isoformat(),
+        scan_method="com",
+        is_admin=True,
+        updates=[
+            {"kb_number": "KB5001234", "title": "2026-09 Cumulative Update", "description": None, "size_bytes": 500},
+        ],
+        error=None,
+    )
+    payload.update(overrides)
+    return payload
+
+
+@pytest.mark.anyio
+async def test_report_windows_updates_stores_and_is_retrievable(client):
+    registered = await _register(client)
+    agent_id = registered["agent_id"]
+    headers = {"Authorization": f"Bearer {registered['token']}"}
+
+    response = await client.post(
+        f"/api/agents/{agent_id}/updates", json=_windows_update_payload(), headers=headers
+    )
+    assert response.status_code == 200
+
+    stored = await client.get(f"/api/agents/{agent_id}/updates")
+    assert stored.status_code == 200
+    body = stored.json()
+    assert body["agent_id"] == agent_id
+    assert body["scan_method"] == "com"
+    assert body["is_admin"] is True
+    assert body["updates"][0]["kb_number"] == "KB5001234"
+    assert body["error"] is None
+    assert body["reboot_required"] is False
+
+
+@pytest.mark.anyio
+async def test_report_windows_updates_stores_reboot_required_flag(client):
+    registered = await _register(client)
+    agent_id = registered["agent_id"]
+    headers = {"Authorization": f"Bearer {registered['token']}"}
+
+    await client.post(
+        f"/api/agents/{agent_id}/updates",
+        json=_windows_update_payload(reboot_required=True),
+        headers=headers,
+    )
+
+    body = (await client.get(f"/api/agents/{agent_id}/updates")).json()
+    assert body["reboot_required"] is True
+
+
+@pytest.mark.anyio
+async def test_report_windows_updates_upserts_replacing_previous_scan(client):
+    registered = await _register(client)
+    agent_id = registered["agent_id"]
+    headers = {"Authorization": f"Bearer {registered['token']}"}
+
+    await client.post(
+        f"/api/agents/{agent_id}/updates",
+        json=_windows_update_payload(updates=[{"kb_number": "KB1", "title": "old"}]),
+        headers=headers,
+    )
+    await client.post(
+        f"/api/agents/{agent_id}/updates",
+        json=_windows_update_payload(updates=[{"kb_number": "KB2", "title": "new"}]),
+        headers=headers,
+    )
+
+    body = (await client.get(f"/api/agents/{agent_id}/updates")).json()
+    assert len(body["updates"]) == 1
+    assert body["updates"][0]["kb_number"] == "KB2"
+
+
+@pytest.mark.anyio
+async def test_report_windows_updates_honestly_stores_fallback_scan_with_error(client):
+    """`installed_hotfixes` — COM başarısız olup yedek yönteme
+    düşüldüğünde `error` alanı DOLU kalır, sessizce gizlenmez."""
+    registered = await _register(client)
+    agent_id = registered["agent_id"]
+    headers = {"Authorization": f"Bearer {registered['token']}"}
+
+    await client.post(
+        f"/api/agents/{agent_id}/updates",
+        json=_windows_update_payload(
+            scan_method="installed_hotfixes",
+            updates=[{"kb_number": "KB999", "title": "Already installed"}],
+            error="COM taraması başarısız oldu: COM not registered",
+        ),
+        headers=headers,
+    )
+
+    body = (await client.get(f"/api/agents/{agent_id}/updates")).json()
+    assert body["scan_method"] == "installed_hotfixes"
+    assert "COM" in body["error"]
+
+
+@pytest.mark.anyio
+async def test_report_windows_updates_without_token_returns_401(client):
+    registered = await _register(client)
+
+    response = await client.post(
+        f"/api/agents/{registered['agent_id']}/updates", json=_windows_update_payload()
+    )
+
+    assert response.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_report_windows_updates_for_mismatched_agent_id_returns_403(client):
+    registered_a = await _register(client, hostname="agent-a")
+    registered_b = await _register(client, hostname="agent-b")
+    headers_a = {"Authorization": f"Bearer {registered_a['token']}"}
+
+    response = await client.post(
+        f"/api/agents/{registered_b['agent_id']}/updates",
+        json=_windows_update_payload(),
+        headers=headers_a,
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_get_windows_updates_returns_404_when_never_scanned(client):
+    registered = await _register(client)
+
+    response = await client.get(f"/api/agents/{registered['agent_id']}/updates")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_get_windows_updates_returns_404_for_unknown_agent(client):
+    import uuid
+
+    response = await client.get(f"/api/agents/{uuid.uuid4()}/updates")
+
+    assert response.status_code == 404
+
+
+# --- Lifecycle Management: Silme (soft-delete/arşivleme) ---
+
+
+@pytest.mark.anyio
+async def test_delete_agent_without_uninstall_command_archives_it(client):
+    registered = await _register(client)
+    agent_id = registered["agent_id"]
+
+    response = await client.delete(f"/api/agents/{agent_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["archived"] is True
+    assert body["uninstall_command_id"] is None
+    # Arşivlenen agent artık aktif listede görünmez.
+    assert (await client.get("/api/agents")).json() == []
+    # Ama hâlâ detay ile erişilebilir (kalıcı SİLİNMEDİ).
+    assert (await client.get(f"/api/agents/{agent_id}")).status_code == 200
+
+
+@pytest.mark.anyio
+async def test_delete_agent_with_uninstall_command_enqueues_command_before_archiving(client):
+    registered = await _register(client)
+    agent_id = registered["agent_id"]
+
+    response = await client.delete(f"/api/agents/{agent_id}?send_uninstall_command=true")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["archived"] is True
+    assert body["uninstall_command_id"] is not None
+
+    # Komut gerçekten kuyruğa girdi — audit listesinde görünür (bu
+    # endpoint auth gerektirmez, arşivlenme sonrası token artık geçersiz
+    # olduğu için `commands/pending` burada kasıtlı KULLANILMAZ).
+    commands = (await client.get(f"/api/agents/{agent_id}/commands")).json()
+    assert len(commands) == 1
+    assert commands[0]["command_type"] == "uninstall_service"
+    assert commands[0]["action"] == "uninstall"
+
+
+@pytest.mark.anyio
+async def test_delete_agent_returns_404_for_unknown_agent(client):
+    import uuid
+
+    response = await client.delete(f"/api/agents/{uuid.uuid4()}")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_archived_agent_can_no_longer_authenticate(client):
+    """Arşivleme mevcut `revoked_at` mekanizmasını (Faz 28) doldurur —
+    ek bir kontrol gerekmeden kimlik doğrulama otomatik kapanır."""
+    registered = await _register(client)
+    headers = {"Authorization": f"Bearer {registered['token']}"}
+    await client.delete(f"/api/agents/{registered['agent_id']}")
+
+    response = await client.post(
+        "/api/agents/heartbeat", json={"uptime_seconds": 1}, headers=headers
+    )
+
+    assert response.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_restore_agent_makes_it_visible_again_and_reauthenticatable(client):
+    registered = await _register(client)
+    headers = {"Authorization": f"Bearer {registered['token']}"}
+    await client.delete(f"/api/agents/{registered['agent_id']}")
+
+    response = await client.post(f"/api/agents/{registered['agent_id']}/restore")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == registered["agent_id"]
+    assert len((await client.get("/api/agents")).json()) == 1
+    assert (await client.get("/api/agents/archived")).json() == []
+
+    heartbeat = await client.post(
+        "/api/agents/heartbeat", json={"uptime_seconds": 1}, headers=headers
+    )
+    assert heartbeat.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_restore_agent_returns_404_for_unknown_agent(client):
+    import uuid
+
+    response = await client.post(f"/api/agents/{uuid.uuid4()}/restore")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_list_archived_agents_shows_reason_and_duration(client):
+    registered = await _register(client, hostname="archived-host")
+    agent_id = registered["agent_id"]
+    headers = {"Authorization": f"Bearer {registered['token']}"}
+    await client.post("/api/agents/heartbeat", json={"uptime_seconds": 1}, headers=headers)
+    await client.delete(f"/api/agents/{agent_id}")
+
+    response = await client.get("/api/agents/archived")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["id"] == agent_id
+    assert body[0]["hostname"] == "archived-host"
+    assert body[0]["archived_reason"] == "manual"
+    assert body[0]["archived_after_inactive_days"] is None
+    assert body[0]["active_duration_seconds"] is not None
+    assert body[0]["active_duration_seconds"] >= 0
+
+
+# --- Lifecycle Management: Otomatik Temizleme Politikası ---
+
+
+@pytest.mark.anyio
+async def test_retention_policy_defaults_to_disabled(client):
+    response = await client.get("/api/agents/retention-policy")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is False
+    assert body["retention_days"] == 30
+
+
+@pytest.mark.anyio
+async def test_set_retention_policy_persists_change(client):
+    response = await client.put(
+        "/api/agents/retention-policy", json={"enabled": True, "retention_days": 14}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"enabled": True, "retention_days": 14}
+
+    refetched = await client.get("/api/agents/retention-policy")
+    assert refetched.json() == {"enabled": True, "retention_days": 14}
+
+
+@pytest.mark.anyio
+async def test_set_retention_policy_rejects_non_positive_days(client):
+    response = await client.put(
+        "/api/agents/retention-policy", json={"enabled": True, "retention_days": 0}
+    )
+
+    assert response.status_code == 422
+
+
+# --- Lifecycle Management: Uzaktan Sürüm Güncelleme ---
+
+
+@pytest.mark.anyio
+async def test_trigger_update_enqueues_update_self_command(client):
+    registered = await _register(client)
+    agent_id = registered["agent_id"]
+    headers = {"Authorization": f"Bearer {registered['token']}"}
+
+    response = await client.post(f"/api/agents/{agent_id}/update")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "queued"
+
+    pending = await client.get(f"/api/agents/{agent_id}/commands/pending", headers=headers)
+    commands = pending.json()["commands"]
+    assert len(commands) == 1
+    assert commands[0]["command_type"] == "update_self"
+    assert commands[0]["action"] == "update"
+
+
+@pytest.mark.anyio
+async def test_trigger_update_returns_404_for_unknown_agent(client):
+    import uuid
+
+    response = await client.post(f"/api/agents/{uuid.uuid4()}/update")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_agent_summary_reports_no_update_available_when_no_windows_build_exists(client, monkeypatch):
+    """Build artifact yoksa (veya bozuksa) dürüstçe
+    `update_available=False`/`latest_available_version=None` — bu
+    makinede gerçek bir build bulunabileceğinden (önceki fazlardan
+    kalma) davranış açıkça `ArtifactNotAvailableError` fırlatılarak
+    simüle edilir."""
+    from app.agents.download import ArtifactNotAvailableError
+
+    def _raise():
+        raise ArtifactNotAvailableError("build yok")
+
+    monkeypatch.setattr("app.agents.download.resolve_windows_service_artifact", _raise)
+    registered = await _register(client, os="windows")
+
+    body = (await client.get("/api/agents")).json()
+
+    assert body[0]["update_available"] is False
+    assert body[0]["latest_available_version"] is None
+
+
+@pytest.mark.anyio
+async def test_agent_summary_reports_update_available_when_build_is_newer(client, monkeypatch):
+    from app.agents.download import WindowsAgentArtifact
+
+    registered = await _register(client, os="windows", agent_version="1.0.0")
+
+    from pathlib import Path
+
+    fake_artifact = WindowsAgentArtifact(
+        path=Path(__file__),  # gerçek bir dosya olması yeterli, içeriği önemsiz
+        version="9.9.9",
+        filename="itops-agent-windows-service.zip",
+        size_bytes=123,
+        built_at=datetime.now(timezone.utc).isoformat(),
+    )
+    monkeypatch.setattr(
+        "app.agents.download.resolve_windows_service_artifact", lambda: fake_artifact
+    )
+
+    body = (await client.get("/api/agents")).json()
+
+    assert body[0]["update_available"] is True
+    assert body[0]["latest_available_version"] == "9.9.9"

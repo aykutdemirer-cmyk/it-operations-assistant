@@ -8,8 +8,9 @@ function Probe() {
   return (
     <div>
       <span data-testid="theme">{theme}</span>
-      <button onClick={() => setTheme("light")}>Light</button>
-      <button onClick={() => setTheme("dark")}>Dark</button>
+      <button onClick={() => setTheme("cyber-neon")}>Neon</button>
+      <button onClick={() => setTheme("enterprise-light")}>Light</button>
+      <button onClick={() => setTheme("fortios-dark")}>Dark</button>
     </div>
   );
 }
@@ -24,27 +25,27 @@ afterEach(() => {
 });
 
 describe("ThemeProvider", () => {
-  it("defaults to dark", () => {
+  it("defaults to fortios-dark", () => {
     render(
       <ThemeProvider>
         <Probe />
       </ThemeProvider>,
     );
 
-    expect(screen.getByTestId("theme")).toHaveTextContent("dark");
+    expect(screen.getByTestId("theme")).toHaveTextContent("fortios-dark");
   });
 
-  it("sets data-theme=dark on the html element after mount", async () => {
+  it("sets data-theme=fortios-dark on the html element after mount", () => {
     render(
       <ThemeProvider>
         <Probe />
       </ThemeProvider>,
     );
 
-    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(document.documentElement.dataset.theme).toBe("fortios-dark");
   });
 
-  it("switches to light and updates the DOM attribute", () => {
+  it("switches to a chosen theme and updates the DOM attribute", () => {
     render(
       <ThemeProvider>
         <Probe />
@@ -52,11 +53,11 @@ describe("ThemeProvider", () => {
     );
 
     act(() => {
-      fireEvent.click(screen.getByText("Light"));
+      fireEvent.click(screen.getByText("Neon"));
     });
 
-    expect(screen.getByTestId("theme")).toHaveTextContent("light");
-    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(screen.getByTestId("theme")).toHaveTextContent("cyber-neon");
+    expect(document.documentElement.dataset.theme).toBe("cyber-neon");
   });
 
   it("persists the chosen theme to localStorage", () => {
@@ -70,10 +71,37 @@ describe("ThemeProvider", () => {
       fireEvent.click(screen.getByText("Light"));
     });
 
-    expect(window.localStorage.getItem("itops-theme")).toBe("light");
+    expect(window.localStorage.getItem("itops-theme")).toBe("enterprise-light");
   });
 
   it("restores a persisted theme on mount", async () => {
+    window.localStorage.setItem("itops-theme", "midnight-blue");
+
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+
+    expect(await screen.findByTestId("theme")).toHaveTextContent("midnight-blue");
+    expect(document.documentElement.dataset.theme).toBe("midnight-blue");
+  });
+
+  it("migrates the legacy 'dark' value to fortios-dark", async () => {
+    window.localStorage.setItem("itops-theme", "dark");
+
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+
+    expect(await screen.findByTestId("theme")).toHaveTextContent("fortios-dark");
+    expect(document.documentElement.dataset.theme).toBe("fortios-dark");
+    expect(window.localStorage.getItem("itops-theme")).toBe("fortios-dark");
+  });
+
+  it("migrates the legacy 'light' value to enterprise-light", async () => {
     window.localStorage.setItem("itops-theme", "light");
 
     render(
@@ -82,8 +110,8 @@ describe("ThemeProvider", () => {
       </ThemeProvider>,
     );
 
-    expect(await screen.findByTestId("theme")).toHaveTextContent("light");
-    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(await screen.findByTestId("theme")).toHaveTextContent("enterprise-light");
+    expect(window.localStorage.getItem("itops-theme")).toBe("enterprise-light");
   });
 
   it("throws when useTheme is used outside a ThemeProvider", () => {

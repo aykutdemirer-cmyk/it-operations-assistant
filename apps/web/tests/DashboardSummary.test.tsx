@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DashboardSummary } from "@/components/DashboardSummary";
@@ -131,5 +131,43 @@ describe("DashboardSummary", () => {
     renderWithDashboardData(<DashboardSummary />);
 
     expect(cardValue(tr.dashboard.summary.totalAssets)).toBe("–");
+  });
+
+  it("links each KPI card to a filtered Asset Inventory view (kullanıcı isteği: quick filters)", async () => {
+    mockAssets();
+    renderWithDashboardData(<DashboardSummary />);
+
+    const s = tr.dashboard.summary;
+    await waitFor(() => expect(cardValue(s.totalAssets)).toBe("4"));
+
+    expect(screen.getByText(s.totalAssets).closest("a")).toHaveAttribute("href", "/assets");
+    expect(screen.getByText(s.highRiskPortsCard).closest("a")).toHaveAttribute(
+      "href",
+      "/assets?highRisk=1",
+    );
+    expect(screen.getByText(s.unknown).closest("a")).toHaveAttribute(
+      "href",
+      "/assets?deviceType=unknown",
+    );
+    expect(screen.getByText(s.healthScoreCard).closest("a")).toHaveAttribute(
+      "href",
+      "/assets?status=down",
+    );
+  });
+
+  it("refetches assets when the refresh button is clicked", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ASSETS });
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithDashboardData(<DashboardSummary />);
+
+    await waitFor(() => expect(cardValue(tr.dashboard.summary.totalAssets)).toBe("4"));
+    const callsBefore = fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/assets")).length;
+
+    fireEvent.click(screen.getByRole("button", { name: tr.common.refresh }));
+
+    await waitFor(() => {
+      const callsAfter = fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/assets")).length;
+      expect(callsAfter).toBeGreaterThan(callsBefore);
+    });
   });
 });

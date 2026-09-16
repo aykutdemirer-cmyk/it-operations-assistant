@@ -50,10 +50,12 @@ async def client():
 # kopyalanmamış) çağrısını da otomatik kapsar.
 _ROUTE_GET_CONNECTION_TARGETS = [
     "app.routes.agent_commands.get_connection",
+    "app.routes.agent_updates.get_connection",
     "app.routes.agents.get_connection",
     "app.routes.asset_snmp_profiles.get_connection",
     "app.routes.assets.get_connection",
     "app.routes.discovery.get_connection",
+    "app.routes.health.get_connection",
     "app.routes.monitoring.get_connection",
     "app.routes.scans.get_connection",
     "app.routes.snmp.get_connection",
@@ -63,6 +65,42 @@ _ROUTE_GET_CONNECTION_TARGETS = [
     "app.db.assets.get_connection",
     "app.db.scans.get_connection",
     "app.db.snmp_profiles.get_connection",
+    # Faz 46 — PAM/RBAC.
+    "app.routes.auth.get_connection",
+    "app.routes.pam_users.get_connection",
+    "app.routes.pam_vault.get_connection",
+    "app.routes.pam_rules.get_connection",
+    "app.routes.pam_audit.get_connection",
+    # Faz 55 — Cihaz Etiketleri (Tags) + Statik Cihaz Grupları.
+    "app.routes.pam_tags.get_connection",
+    "app.routes.pam_server_groups.get_connection",
+    # Faz 56 — Erişim Talepleri (Access Requests).
+    "app.routes.pam_access_requests.get_connection",
+    # Faz 62 — IT Helpdesk / Ticket Management.
+    "app.routes.tickets.get_connection",
+    "app.db.tickets.get_connection",
+    # Faz 66 — SMTP yapılandırması (Ayarlar).
+    "app.routes.smtp_settings.get_connection",
+    "app.db.smtp.get_connection",
+    # Faz 71 — Zamanlanmış Ağ Taraması.
+    "app.db.scheduled_scans.get_connection",
+    "app.routes.pam_ssh.get_pam_connection",
+    "app.routes.pam_ssh.get_assets_connection",
+    "app.routes.pam_rdp.get_pam_connection",
+    "app.routes.pam_rdp.get_assets_connection",
+    # Faz 76 — PAM Web Konsolu.
+    "app.routes.pam_web.get_pam_connection",
+    "app.routes.pam_web.get_assets_connection",
+    "app.auth.dependencies.get_connection",
+    "app.db.users.get_connection",
+    "app.db.pam.get_connection",
+    # Faz 49 — LDAP/Active Directory Entegrasyonu.
+    "app.routes.ldap_settings.get_connection",
+    "app.db.ldap.get_connection",
+    # Faz 72 — vCenter/vSphere.
+    "app.routes.vcenter.get_connection",
+    "app.routes.vcenter_settings.get_connection",
+    "app.db.vcenter.get_connection",
 ]
 
 
@@ -121,6 +159,14 @@ async def isolated_db():
         return wrapped
 
     patchers = [patch(target, _shared_connection) for target in _ROUTE_GET_CONNECTION_TARGETS]
+    # Faz 65/66 — `email_service.notify()` ateşle-unut bir asyncio task
+    # oluşturur ve o task `smtp_config`'i okumak için AYNI paylaşımlı
+    # test connection'ında EŞZAMANLI bir sorgu çalıştırır — asyncpg tek
+    # connection'da eşzamanlı işleme izin vermediği için bu, DB'ye bağlı
+    # testlerde takılmaya yol açar. E-posta gönderiminin kendisi ayrıca
+    # `test_email_service.py`'de (izole, `isolated_db` KULLANMADAN) test
+    # edilir; burada no-op yapılır.
+    patchers.append(patch("app.services.email_service.notify", lambda *a, **k: None))
     for p in patchers:
         p.start()
 

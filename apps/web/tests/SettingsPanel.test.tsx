@@ -2,9 +2,11 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { AuthProvider } from "@/lib/auth/AuthProvider";
 import { LocaleProvider } from "@/lib/i18n/LocaleProvider";
 import { tr } from "@/lib/i18n/translations";
 import { ThemeProvider } from "@/lib/theme/ThemeProvider";
+import { mockCurrentUser, setLoggedInToken } from "./testUtils";
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -44,24 +46,26 @@ function mockHealthEndpoints(overrides: Record<string, { ok: boolean; body: unkn
 function renderSettings() {
   return render(
     <LocaleProvider>
-      <ThemeProvider>
-        <SettingsPanel />
-      </ThemeProvider>
+      <AuthProvider>
+        <ThemeProvider>
+          <SettingsPanel />
+        </ThemeProvider>
+      </AuthProvider>
     </LocaleProvider>,
   );
 }
 
 describe("SettingsPanel", () => {
-  it("shows Dark selected by default and switches to Light", () => {
+  it("shows FortiOS Dark selected by default and switches to another theme", () => {
     mockHealthEndpoints();
     renderSettings();
 
-    const darkButton = screen.getByRole("button", { name: tr.settings.appearanceDark });
-    expect(darkButton).toHaveAttribute("aria-pressed", "true");
+    const defaultButton = screen.getByRole("button", { name: tr.settings.themeFortiosDark });
+    expect(defaultButton).toHaveAttribute("aria-pressed", "true");
 
-    fireEvent.click(screen.getByRole("button", { name: tr.settings.appearanceLight }));
+    fireEvent.click(screen.getByRole("button", { name: tr.settings.themeCyberNeon }));
 
-    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(document.documentElement.dataset.theme).toBe("cyber-neon");
   });
 
   it("shows Türkçe selected by default and switches to English", () => {
@@ -96,12 +100,23 @@ describe("SettingsPanel", () => {
     );
   });
 
-  it("always shows SNMP as not configured — no real agent exists", async () => {
+  it("shows SNMP as not configured when no profile is ready", async () => {
     mockHealthEndpoints();
     renderSettings();
 
     await waitFor(() =>
       expect(screen.getByText(tr.settings.notConfigured)).toBeInTheDocument(),
+    );
+  });
+
+  it("shows SNMP as configured when a real profile is ready (Faz: /api/health/snmp gerçek durumu yansıtıyor)", async () => {
+    mockHealthEndpoints({
+      "/api/health/snmp": { ok: true, body: { snmp: "configured" } },
+    });
+    renderSettings();
+
+    await waitFor(() =>
+      expect(screen.getByText(tr.settings.snmpConfigured)).toBeInTheDocument(),
     );
   });
 
@@ -126,5 +141,30 @@ describe("SettingsPanel", () => {
 
     expect(screen.getAllByText(tr.settings.snmpConfig.sectionTitle).length).toBeGreaterThan(0);
     await waitFor(() => expect(screen.getByText(tr.settings.snmpConfig.noProfiles)).toBeInTheDocument());
+  });
+
+  it("hides the Active Directory / LDAP section for a user without PAM_ADMIN", async () => {
+    mockHealthEndpoints();
+    renderSettings();
+
+    await waitFor(() =>
+      expect(screen.getAllByText(tr.settings.connected).length).toBeGreaterThan(0),
+    );
+    expect(screen.queryByText(tr.settings.ldapConfig.sectionTitle)).not.toBeInTheDocument();
+  });
+
+  it("shows the Active Directory / LDAP section for a PAM_ADMIN user", async () => {
+    setLoggedInToken();
+    mockHealthEndpoints({
+      "/api/auth/me": { ok: true, body: mockCurrentUser(["PAM_ADMIN"]) },
+      "/api/settings/ldap/groups": { ok: true, body: [] },
+      "/api/settings/ldap": { ok: true, body: null },
+    });
+    renderSettings();
+
+    await waitFor(() =>
+      expect(screen.getAllByText(tr.settings.ldapConfig.sectionTitle).length).toBeGreaterThan(0),
+    );
+    await waitFor(() => expect(screen.getByText(tr.settings.ldapConfig.notConfigured)).toBeInTheDocument());
   });
 });

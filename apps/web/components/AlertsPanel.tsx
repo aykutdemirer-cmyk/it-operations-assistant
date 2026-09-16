@@ -13,10 +13,10 @@ const SEVERITY_CLASS: Record<AlertSeverity, string> = {
 };
 
 export function AlertsPanel() {
-  const { assets, assetsStatus: status } = useDashboardData();
+  const { assets, assetsStatus: status, monitoring } = useDashboardData();
   const { t } = useLocale();
 
-  const alerts = computeAlerts(assets, t.alertMessages);
+  const alerts = computeAlerts(assets, t.alertMessages, { monitoring });
   const criticalCount = alerts.filter((a) => a.severity === "CRITICAL").length;
   const warningCount = alerts.filter((a) => a.severity === "WARNING").length;
   const infoCount = alerts.filter((a) => a.severity === "INFO").length;

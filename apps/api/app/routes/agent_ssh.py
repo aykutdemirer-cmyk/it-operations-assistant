@@ -11,7 +11,7 @@ from fastapi import APIRouter, WebSocket
 
 from app.agents import service
 from app.agents.ssh_proxy import run_ssh_websocket_session
-from app.db.agents import ensure_schema, get_connection
+from app.db.agents import get_connection
 
 router = APIRouter(prefix="/api/agents")
 
@@ -32,7 +32,8 @@ async def agent_ssh_terminal(websocket: WebSocket, agent_id: UUID) -> None:
         await websocket.send_json({"type": "error", "message": "Backend veritabanına erişilemedi"})
         await websocket.close()
         return
-    await ensure_schema(conn)
+    # Şema artık uygulama başlangıcında tek seferlik kurulur (bkz.
+    # `app/main.py::_ensure_schema_once`).
     try:
         detail = await service.get_agent_detail(conn, agent_id)
     finally:

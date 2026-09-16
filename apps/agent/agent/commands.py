@@ -213,10 +213,11 @@ def control_power(action: str, target: str) -> CommandResult:
     return CommandResult(False, f"Bilinmeyen güç aksiyonu: {action!r}")
 
 
-def execute(command_type: str, action: str, target: str) -> CommandResult:
+def execute(command_type: str, action: str, target: str, *, backend_url: str | None = None) -> CommandResult:
     """Backend'den gelen `{command_type, action, target}` üçlüsünü
     çalıştırır — `main.py`'nin command-poll döngüsündeki tek giriş
-    noktası."""
+    noktası. `backend_url` yalnızca `update_self` için gerekli (yeni
+    binary'nin indirileceği adres) — diğer komut tipleri yok sayar."""
     if command_type == "kill_process":
         try:
             pid = int(target)
@@ -227,4 +228,14 @@ def execute(command_type: str, action: str, target: str) -> CommandResult:
         return control_service(target, action)
     if command_type == "power_control":
         return control_power(action, target)
+    if command_type == "uninstall_service":
+        from agent import lifecycle
+
+        return lifecycle.uninstall_service()
+    if command_type == "update_self":
+        from agent import lifecycle
+
+        if not backend_url:
+            return CommandResult(False, "backend_url bilinmiyor — güncelleme başlatılamadı")
+        return lifecycle.update_self(backend_url)
     return CommandResult(False, f"Bilinmeyen komut tipi: {command_type!r}")

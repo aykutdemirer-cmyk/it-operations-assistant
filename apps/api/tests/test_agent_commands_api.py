@@ -56,6 +56,69 @@ async def test_create_command_starts_pending(client):
 
 
 @pytest.mark.anyio
+async def test_create_check_updates_command_starts_pending(client):
+    """Windows Update Tarama Motoru — "Güncellemeleri Kontrol Et" butonu
+    mevcut agent_commands kuyruğunu AYNEN kullanır."""
+    agent = await _register(client)
+    response = await client.post(
+        f"/api/agents/{agent['agent_id']}/commands",
+        json={"command_type": "check_updates", "action": "scan", "target": "self"},
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "pending"
+    assert body["command_type"] == "check_updates"
+    assert body["action"] == "scan"
+
+
+@pytest.mark.anyio
+async def test_create_check_updates_command_rejects_mismatched_action(client):
+    agent = await _register(client)
+    response = await client.post(
+        f"/api/agents/{agent['agent_id']}/commands",
+        json={"command_type": "check_updates", "action": "kill", "target": "self"},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_create_install_update_command_starts_pending(client):
+    """Windows Update Yükleme — "Şimdi Yükle"/"Tümünü Yükle" butonları
+    mevcut agent_commands kuyruğunu AYNEN kullanır."""
+    agent = await _register(client)
+    response = await client.post(
+        f"/api/agents/{agent['agent_id']}/commands",
+        json={"command_type": "install_update", "action": "install", "target": "KB5001234"},
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "pending"
+    assert body["command_type"] == "install_update"
+    assert body["target"] == "KB5001234"
+
+
+@pytest.mark.anyio
+async def test_create_install_update_command_accepts_all_target(client):
+    agent = await _register(client)
+    response = await client.post(
+        f"/api/agents/{agent['agent_id']}/commands",
+        json={"command_type": "install_update", "action": "install", "target": "all"},
+    )
+    assert response.status_code == 201
+    assert response.json()["target"] == "all"
+
+
+@pytest.mark.anyio
+async def test_create_install_update_command_rejects_mismatched_action(client):
+    agent = await _register(client)
+    response = await client.post(
+        f"/api/agents/{agent['agent_id']}/commands",
+        json={"command_type": "install_update", "action": "kill", "target": "KB5001234"},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.anyio
 async def test_create_command_rejects_mismatched_action(client):
     agent = await _register(client)
     response = await client.post(

@@ -228,6 +228,14 @@ class AgentSummary(BaseModel):
     status: AgentStatus
     registered_at: datetime
     last_heartbeat_at: datetime | None
+    # Faz: Uzaktan Sürüm Güncelleme — sunucuda build edilmiş güncel
+    # Windows Servisi paketiyle (`app/agents/download.py::
+    # resolve_windows_service_artifact`) karşılaştırılarak TÜRETİLİR,
+    # DB'de saklanmaz. Servis paketi hiç build edilmemişse (veya
+    # platform Linux ise, henüz desteklenmiyor — bkz. `agent/
+    # lifecycle.py`) her zaman dürüstçe `False`/`None`.
+    update_available: bool = False
+    latest_available_version: str | None = None
 
 
 class AgentDetail(AgentSummary):
@@ -241,3 +249,59 @@ class AgentDetail(AgentSummary):
     revoked_at: datetime | None
     latest_telemetry: AgentTelemetryRequest | None = None
     inventory: AgentInventoryRequest | None = None
+
+
+# --- Agent Yaşam Döngüsü Yönetimi (Delete/Uninstall, OTA Update,
+# İnaktiflik Arşivleme) — kullanıcı isteği ---
+
+ArchivedReason = Literal["manual", "inactivity"]
+
+
+class ArchivedAgentSummary(BaseModel):
+    """`GET /api/agents/archived` liste öğesi — `AgentSummary`'nin
+    alanlarına EK olarak arşivleme bağlamını (ne zaman/neden, ne kadar
+    aktif kaldı) taşır. Ayrı bir `archived_agents` tablosu YERİNE aynı
+    `agents` satırından türetilir (bkz. `infra/postgres/init.sql`
+    şema yorumu) — restore bu yüzden agent'ın gerçek kimliğini/geçmişini
+    KAYBETMEZ."""
+
+    id: UUID
+    hostname: str
+    os: AgentOS
+    os_version: str | None
+    local_ip: str | None = None
+    registered_at: datetime
+    last_heartbeat_at: datetime | None
+    archived_at: datetime
+    archived_reason: ArchivedReason
+    # Yalnızca `archived_reason="inactivity"` için dolu — hangi
+    # politika eşiğiyle arşivlendiği (UI cümleyi BUNDAN türetir).
+    archived_after_inactive_days: int | None = None
+    # Frontend'in "ne kadar süre aktifti" hesaplaması için ham veri —
+    # saniye cinsinden, `registered_at` ile ya `last_heartbeat_at` ya
+    # da (hiç heartbeat yoksa) `archived_at` arasındaki fark. Sunucu
+    # tarafında hesaplanır (istemcinin saatine güvenilmez).
+    active_duration_seconds: float | None = None
+
+
+class AgentDeleteResult(BaseModel):
+    """`DELETE /api/agents/{id}` yanıtı."""
+
+    archived: bool
+    uninstall_command_id: UUID | None = None
+
+
+class AgentRetentionPolicy(BaseModel):
+    """Ayarlar > Agent Yapılandırması'ndaki "İnaktif Agent Otomatik
+    Temizleme" politikası — tek satırlık, global bir ayar (bkz.
+    `agent_retention_policy` tablosu). `enabled=false` VARSAYILANDIR —
+    kullanıcı açıkça etkinleştirmeden hiçbir agent otomatik
+    arşivlenmez (`ENABLE_REMOTE_COMMANDS` ile AYNI opt-in ilkesi)."""
+
+    enabled: bool
+    retention_days: int = Field(gt=0)
+
+
+class AgentRetentionPolicyUpdate(BaseModel):
+    enabled: bool
+    retention_days: int = Field(gt=0, le=3650)

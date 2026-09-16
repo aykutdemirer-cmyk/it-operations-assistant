@@ -26,7 +26,8 @@
    grafikleri, sağ = güvenlik uyarıları + canlı olay akışı. */
 .mainGrid {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
+  /* Faz: kullanıcı isteği — sol kolon 2/3, sağ kolon 1/3. */
+  grid-template-columns: 2fr 1fr;
   gap: 28px;
   min-width: 0;
   align-items: start;

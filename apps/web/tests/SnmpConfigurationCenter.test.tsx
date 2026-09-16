@@ -217,6 +217,36 @@ describe("SnmpConfigurationCenter", () => {
     expect(screen.getByText(tr.settings.snmpConfig.assignedDevicesCount(3))).toBeInTheDocument();
   });
 
+  it("shows assigned devices as clickable topology links instead of just a count", async () => {
+    mockFetch({
+      profiles: [{ ...READY_PROFILE, assigned_asset_count: 2 }],
+      onRequest: (method, url) => {
+        if (url.includes(`/api/snmp/profiles/${READY_PROFILE.id}/assets`) && method === "GET") {
+          return {
+            ok: true,
+            json: async () => [
+              { id: "a1", ip_address: "10.0.213.20", hostname: "core-sw-01", device_type: "switch", status: "up" },
+              { id: "a2", ip_address: "10.0.213.21", hostname: null, device_type: "switch", status: "up" },
+            ],
+          };
+        }
+        return undefined;
+      },
+    });
+    renderCenter();
+
+    await waitFor(() => expect(screen.getByText("Core Switches")).toBeInTheDocument());
+
+    const hostnameLink = await screen.findByRole("link", { name: "core-sw-01" });
+    expect(hostnameLink).toHaveAttribute("href", `/topology?ip=${encodeURIComponent("10.0.213.20")}`);
+
+    const ipLink = await screen.findByRole("link", { name: "10.0.213.21" });
+    expect(ipLink).toHaveAttribute("href", `/topology?ip=${encodeURIComponent("10.0.213.21")}`);
+
+    // Sayı görünümü artık gösterilmiyor, gerçek cihazlar listeleniyor.
+    expect(screen.queryByText(tr.settings.snmpConfig.assignedDevicesCount(2))).not.toBeInTheDocument();
+  });
+
   it("shows a 409 conflict message instead of deleting a profile with assigned assets", async () => {
     const calls = mockFetch({
       profiles: [READY_PROFILE],
@@ -274,5 +304,71 @@ describe("SnmpConfigurationCenter", () => {
     await waitFor(() =>
       expect(screen.getByText(tr.settings.snmpConfig.testResultLabels.timeout)).toBeInTheDocument(),
     );
+  });
+
+  it("shows the detailed backend message as a toast so timeout/community/unreachable are distinguishable", async () => {
+    mockFetch({
+      profiles: [READY_PROFILE],
+      onRequest: (method, url) => {
+        if (url.includes("/test") && method === "POST") {
+          return {
+            ok: true,
+            json: async () => ({
+              status: "authentication_failed",
+              message: "SNMP kimlik doğrulama reddedildi",
+              sys_name: null,
+              sys_descr: null,
+              sys_object_id: null,
+              sys_uptime_ticks: null,
+            }),
+          };
+        }
+        return undefined;
+      },
+    });
+    renderCenter();
+
+    await waitFor(() => expect(screen.getByText("Core Switches")).toBeInTheDocument());
+    fireEvent.click(screen.getByText(tr.settings.snmpConfig.testConnection));
+
+    // Toast, kısa tablo etiketinden farklı olarak backend'in ayrıntılı
+    // mesajını da taşır — hangisinin (timeout/community/unreachable)
+    // olduğu net görülebilir.
+    expect(await screen.findByText(/SNMP kimlik doğrulama reddedildi/)).toBeInTheDocument();
+  });
+
+  it("labels the last test result separately from the persistent status so identical text never looks like a duplicate badge", async () => {
+    // Faz: profil.status VE testResult.status aynı metni taşıyabilir
+    // (ör. ikisi de "not_configured") — bir prefix etiketi olmadan bu
+    // iki ayrı alan, tek bir yanlışlıkla tekrarlanmış badge gibi görünürdü.
+    mockFetch({
+      profiles: [{ ...READY_PROFILE, status: "not_configured", credential_configured: false }],
+      onRequest: (method, url) => {
+        if (url.includes("/test") && method === "POST") {
+          return {
+            ok: true,
+            json: async () => ({
+              status: "not_configured",
+              message: "Profil devre dışı.",
+              sys_name: null,
+              sys_descr: null,
+              sys_object_id: null,
+              sys_uptime_ticks: null,
+            }),
+          };
+        }
+        return undefined;
+      },
+    });
+    renderCenter();
+
+    await waitFor(() => expect(screen.getByText("Core Switches")).toBeInTheDocument());
+    fireEvent.click(screen.getByText(tr.settings.snmpConfig.testConnection));
+
+    await waitFor(() => expect(screen.getByText(tr.settings.snmpConfig.lastTestResult)).toBeInTheDocument());
+    // Aynı "Yapılandırılmadı" metni iki kez görünse bile, biri "Son
+    // test:" prefix'i taşıdığı için ikisinin FARKLI alanlar olduğu
+    // açık — kazara render edilmiş bir duplicate DEĞİL.
+    expect(screen.getAllByText(tr.settings.snmpConfig.statusLabels.not_configured).length).toBe(2);
   });
 });

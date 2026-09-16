@@ -93,6 +93,17 @@
   outline-offset: -1px;
 }
 
+.checkboxFilter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
 .error {
   font-size: 0.85rem;
   color: var(--status-down);

@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.db.assets import upsert_asset
+from app.snmp import monitoring_cache
 from app.snmp.models import SNMPPollResult
 
 
@@ -22,6 +23,13 @@ def _now() -> datetime:
 @pytest.fixture(autouse=True)
 async def _clean_assets_table(isolated_db):
     await isolated_db.execute("TRUNCATE TABLE assets CASCADE")
+
+
+@pytest.fixture(autouse=True)
+def _reset_monitoring_cache():
+    monitoring_cache.reset()
+    yield
+    monitoring_cache.reset()
 
 
 async def _seed(isolated_db, **overrides) -> dict:
@@ -118,3 +126,41 @@ async def test_monitoring_never_leaks_community_secret(isolated_db, client, monk
 
     assert response.status_code == 200
     assert "gizli-deger-monitoring-response-da-olmamali" not in response.text
+
+
+@pytest.mark.anyio
+async def test_monitoring_history_returns_empty_state_before_first_background_poll(client):
+    # Backend az önce başladıysa (veya arka plan worker'ı hiç
+    # çalışmadıysa) worker HENÜZ hiç tur atmamıştır — dürüstçe boş.
+    response = await client.get("/api/monitoring/history")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["latest_batch"] is None
+    assert body["poll_log"] == []
+    assert body["bandwidth_history"] == []
+
+
+@pytest.mark.anyio
+async def test_monitoring_history_reflects_what_the_background_poller_recorded(client):
+    # Bu endpoint hiçbir gerçek poll TETİKLEMEZ — yalnızca süreç-içi
+    # önbelleği (`monitoring_cache.record_batch`, normalde
+    # `scheduler.py` tarafından çağrılır) okur.
+    result = SNMPPollResult(asset_id="11111111-1111-1111-1111-111111111111", polled_at=_now(), status="success")
+    from app.snmp.poller import PollBatchResult
+
+    now = _now()
+    batch = PollBatchResult(
+        started_at=now, completed_at=now, duration_ms=8.0,
+        total=1, polled=1, not_configured=0, results=[result],
+    )
+    monitoring_cache.record_batch(batch)
+
+    response = await client.get("/api/monitoring/history")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["latest_batch"]["total"] == 1
+    assert len(body["poll_log"]) == 1
+    assert body["poll_log"][0]["status"] == "success"
+    assert len(body["bandwidth_history"]) == 1

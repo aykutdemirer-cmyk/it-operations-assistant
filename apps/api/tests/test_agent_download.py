@@ -5,11 +5,18 @@ build-info.json yolu sabitleri `unittest.mock.patch` ile geçici bir
 `isolated_db` gerekmez — düz `client` fixture'ı yeterli."""
 
 import json
+import zipfile
+from io import BytesIO
 from unittest.mock import patch
 
 import pytest
 
-from app.agents.download import ArtifactNotAvailableError, resolve_windows_agent_artifact
+from app.agents.download import (
+    ArtifactNotAvailableError,
+    build_windows_service_bundle_zip,
+    resolve_windows_agent_artifact,
+    resolve_windows_service_artifact,
+)
 
 
 def _write_build_info(dist_dir, *, filename="IT-Operations-Agent-1.0.0.exe", version="1.0.0", exe_content=b"fake-exe-bytes", **overrides):
@@ -166,3 +173,166 @@ async def test_download_windows_never_leaks_server_filesystem_paths_in_error(cli
         response = await client.get("/api/agents/download/windows")
 
     assert str(tmp_path) not in response.text
+
+
+# --- Windows Servisi paketi (başka bir bilgisayara kurmak için ZIP) ---
+
+
+def _write_service_build_info(dist_dir, *, filename="itops-agent.exe", version="1.0.0", exe_content=b"fake-service-exe", **overrides):
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    exe_path = dist_dir / filename
+    exe_path.write_bytes(exe_content)
+    info = {"version": version, "filename": filename, "size_bytes": len(exe_content), "built_at": "2026-01-01T00:00:00Z"}
+    info.update(overrides)
+    (dist_dir / "service-build-info.json").write_text(json.dumps(info), encoding="utf-8")
+    return exe_path
+
+
+def _write_fake_scripts(scripts_dir):
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    install_path = scripts_dir / "install_windows_service.ps1"
+    uninstall_path = scripts_dir / "uninstall_windows_service.ps1"
+    install_path.write_text("# fake install script\n", encoding="utf-8")
+    uninstall_path.write_text("# fake uninstall script\n", encoding="utf-8")
+    return install_path, uninstall_path
+
+
+def _patched_service(dist_dir, scripts_dir=None):
+    targets = {
+        "_DIST_DIR": dist_dir,
+        "_SERVICE_BUILD_INFO_PATH": dist_dir / "service-build-info.json",
+    }
+    if scripts_dir is not None:
+        targets["_INSTALL_SCRIPT_PATH"] = scripts_dir / "install_windows_service.ps1"
+        targets["_UNINSTALL_SCRIPT_PATH"] = scripts_dir / "uninstall_windows_service.ps1"
+    return patch.multiple("app.agents.download", **targets)
+
+
+def test_resolve_service_artifact_raises_when_build_info_missing(tmp_path):
+    with _patched_service(tmp_path):
+        with pytest.raises(ArtifactNotAvailableError):
+            resolve_windows_service_artifact()
+
+
+def test_resolve_service_artifact_returns_real_metadata_when_present(tmp_path):
+    _write_service_build_info(tmp_path)
+    with _patched_service(tmp_path):
+        artifact = resolve_windows_service_artifact()
+
+    assert artifact.version == "1.0.0"
+    assert artifact.filename == "itops-agent.exe"
+    assert artifact.size_bytes == len(b"fake-service-exe")
+
+
+def test_resolve_service_artifact_rejects_path_traversal_filename(tmp_path):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    info = {"version": "1.0.0", "filename": "../../etc/passwd", "size_bytes": 1, "built_at": "x"}
+    (tmp_path / "service-build-info.json").write_text(json.dumps(info), encoding="utf-8")
+    with _patched_service(tmp_path):
+        with pytest.raises(ArtifactNotAvailableError):
+            resolve_windows_service_artifact()
+
+
+def test_build_service_bundle_zip_contains_exe_scripts_and_readme(tmp_path):
+    exe_path = _write_service_build_info(tmp_path / "dist", exe_content=b"real-exe-bytes-here")
+    install_path, uninstall_path = _write_fake_scripts(tmp_path / "scripts")
+
+    with _patched_service(tmp_path / "dist", tmp_path / "scripts"):
+        artifact = resolve_windows_service_artifact()
+        zip_bytes = build_windows_service_bundle_zip(artifact)
+
+    with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
+        names = set(zf.namelist())
+        assert names == {
+            "itops-agent.exe",
+            "install_windows_service.ps1",
+            "uninstall_windows_service.ps1",
+            "README.txt",
+        }
+        assert zf.read("itops-agent.exe") == exe_path.read_bytes()
+        assert zf.read("install_windows_service.ps1") == install_path.read_bytes()
+        assert zf.read("uninstall_windows_service.ps1") == uninstall_path.read_bytes()
+        readme = zf.read("README.txt").decode("utf-8")
+        assert "install_windows_service.ps1" in readme
+        assert "ITOpsAgent" in readme
+
+
+def test_build_service_bundle_zip_raises_when_scripts_missing(tmp_path):
+    _write_service_build_info(tmp_path / "dist")
+    # scripts dizini KASITLI oluşturulmadı.
+    with _patched_service(tmp_path / "dist", tmp_path / "scripts"):
+        artifact = resolve_windows_service_artifact()
+        with pytest.raises(ArtifactNotAvailableError):
+            build_windows_service_bundle_zip(artifact)
+
+
+@pytest.mark.anyio
+async def test_service_download_info_reports_unavailable_when_not_built(client, tmp_path):
+    with _patched_service(tmp_path):
+        response = await client.get("/api/agents/download/windows-service/info")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["available"] is False
+
+
+@pytest.mark.anyio
+async def test_service_download_info_reports_real_metadata_when_built(client, tmp_path):
+    _write_service_build_info(tmp_path, version="1.0.0", exe_content=b"x" * 300)
+
+    with _patched_service(tmp_path):
+        response = await client.get("/api/agents/download/windows-service/info")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {
+        "available": True,
+        "version": "1.0.0",
+        "filename": "itops-agent.exe",
+        "size_bytes": 300,
+        "built_at": "2026-01-01T00:00:00Z",
+    }
+
+
+@pytest.mark.anyio
+async def test_download_windows_service_returns_404_when_not_built(client, tmp_path):
+    with _patched_service(tmp_path):
+        response = await client.get("/api/agents/download/windows-service")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_download_windows_service_returns_real_zip_with_correct_headers(client, tmp_path):
+    _write_service_build_info(tmp_path / "dist", exe_content=b"real-service-exe")
+    _write_fake_scripts(tmp_path / "scripts")
+
+    with _patched_service(tmp_path / "dist", tmp_path / "scripts"):
+        response = await client.get("/api/agents/download/windows-service")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert 'attachment; filename="itops-agent-windows-service.zip"' in response.headers["content-disposition"]
+    with zipfile.ZipFile(BytesIO(response.content)) as zf:
+        assert zf.read("itops-agent.exe") == b"real-service-exe"
+
+
+@pytest.mark.anyio
+async def test_download_windows_service_uses_the_real_repo_scripts_end_to_end(client, tmp_path):
+    """Gerçek `apps/agent/scripts/*.ps1` dosyalarını (mock'lanmamış)
+    kullanarak — bu testin geçmesi, gerçek kurulum script'lerinin
+    ZIP'e doğru şekilde paketlendiğini kanıtlar."""
+    _write_service_build_info(tmp_path, exe_content=b"real-exe")
+
+    with patch.multiple(
+        "app.agents.download",
+        _DIST_DIR=tmp_path,
+        _SERVICE_BUILD_INFO_PATH=tmp_path / "service-build-info.json",
+    ):
+        response = await client.get("/api/agents/download/windows-service")
+
+    assert response.status_code == 200
+    with zipfile.ZipFile(BytesIO(response.content)) as zf:
+        install_content = zf.read("install_windows_service.ps1").decode("utf-8")
+        assert "ITOpsAgent" in install_content
+        assert "sc.exe create" in install_content

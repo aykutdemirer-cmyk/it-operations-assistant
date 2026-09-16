@@ -1,19 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import {
-  agentRdpConnectUrl,
   ApiError,
   fetchAgent,
+  fetchAgentWindowsUpdates,
   pollAgentCommand,
   submitAgentCommand,
   wakeAgent,
+  windowsUpdateKbSupportUrl,
   type AgentCommandAction,
   type AgentCommandType,
   type AgentDetail,
   type AgentProcessInfo,
+  type AgentWindowsUpdates,
 } from "@/lib/api";
 import { useDashboardData } from "@/lib/DashboardDataProvider";
 import { useLocale } from "@/lib/i18n/LocaleProvider";
@@ -32,7 +34,14 @@ type TabKey =
   | "network"
   | "processes"
   | "services"
-  | "sessions";
+  | "sessions"
+  | "windowsUpdates";
+
+function formatUpdateSize(bytes: number | null): string {
+  if (bytes == null) return "-";
+  const mb = bytes / 1_000_000;
+  return `${mb.toFixed(1)} MB`;
+}
 
 function formatBytes(bytes: number | null): string {
   if (bytes == null) return "-";
@@ -113,6 +122,21 @@ export function AgentDetailView({ agentId }: Props) {
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [status, setStatus] = useState<FetchStatus>("loading");
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [windowsUpdates, setWindowsUpdates] = useState<AgentWindowsUpdates | null>(null);
+  const [windowsUpdatesStatus, setWindowsUpdatesStatus] = useState<FetchStatus>("loading");
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [pendingInstall, setPendingInstall] = useState<{ target: string; label: string } | null>(null);
+  // Aynı anda yalnızca TEK bir yükleme — "KBxxxxx" hedefi veya "all".
+  // Birden fazla eşzamanlı yükleme kullanıcı için kafa karıştırıcı/
+  // riskli olurdu, bu yüzden bilinçli olarak tek seferde biri.
+  const [installingTarget, setInstallingTarget] = useState<string | null>(null);
+  // Yalnızca `scan_method === "com"` iken anlamlı — `installed_
+  // hotfixes` (yedek yöntem) satırları ZATEN KURULMUŞ hotfix'lerdir,
+  // "yükle" butonu göstermek yanlış/anlamsız olurdu (bkz. modülün
+  // dürüstlük ilkesi).
+  const installableCount =
+    windowsUpdates?.scan_method === "com" ? windowsUpdates.updates.length : 0;
   const { toasts, push: pushToast, dismiss: dismissToast } = useToasts();
   const [pendingAction, setPendingAction] = useState<{
     commandType: AgentCommandType;
@@ -149,9 +173,19 @@ export function AgentDetailView({ agentId }: Props) {
       });
   }, [agentId]);
 
+  const loadWindowsUpdates = useCallback(() => {
+    return fetchAgentWindowsUpdates(agentId)
+      .then((data) => {
+        setWindowsUpdates(data);
+        setWindowsUpdatesStatus("done");
+      })
+      .catch(() => setWindowsUpdatesStatus("error"));
+  }, [agentId]);
+
   useEffect(() => {
     loadAgent();
-  }, [loadAgent]);
+    loadWindowsUpdates();
+  }, [loadAgent, loadWindowsUpdates]);
 
   const handleConfirmAction = async () => {
     if (!pendingAction) return;
@@ -229,6 +263,92 @@ export function AgentDetailView({ agentId }: Props) {
     }
   };
 
+  const handleCheckUpdates = async () => {
+    // Windows Update Tarama Motoru — "Güncellemeleri Kontrol Et" butonu.
+    // Mevcut `agent_commands` kuyruğunu (Faz 33) AYNEN kullanır —
+    // `check_updates`/`scan` komutu agent'ın komut-poll döngüsünde
+    // çekilip `_send_windows_updates()`'i doğrudan tetikler (bkz.
+    // `agent/main.py::_poll_and_execute_commands` — `refresh_inventory`
+    // ile AYNI özel-durum deseni). Agent kapalıysa/`ENABLE_REMOTE_
+    // COMMANDS=false` ise dürüstçe "hâlâ işleniyor" durumuna düşer,
+    // sahte bir başarı GÖSTERİLMEZ.
+    setCheckingUpdates(true);
+    try {
+      const created = await submitAgentCommand(agentId, {
+        command_type: "check_updates",
+        action: "scan",
+        target: "self",
+      });
+      if (created.status === "rejected") {
+        pushToast("error", cmdText.failure(created.result_detail ?? "reddedildi"));
+      } else {
+        const finalCommand = await pollAgentCommand(agentId, created.id);
+        if (!finalCommand || finalCommand.status === "pending" || finalCommand.status === "sent") {
+          pushToast("error", cmdText.stillProcessing);
+        } else if (finalCommand.status === "succeeded") {
+          pushToast("success", d.windowsUpdates.checkSuccess(finalCommand.result_detail ?? ""));
+        } else {
+          pushToast("error", cmdText.failure(finalCommand.result_detail ?? "başarısız"));
+        }
+      }
+    } catch (err) {
+      pushToast("error", cmdText.failure(err instanceof Error ? err.message : String(err)));
+    } finally {
+      setCheckingUpdates(false);
+      // Komut sonucu ne olursa olsun tabloyu tazele — agent GERÇEKTEN
+      // yeni bir tarama gönderdiyse (`POST .../updates`, bkz. `agent/
+      // main.py::_send_windows_updates`) burada görünür.
+      await loadWindowsUpdates();
+    }
+  };
+
+  const handleConfirmInstall = async () => {
+    // Windows Update Yükleme — "Şimdi Yükle"/"Tümünü Yükle". GERİ
+    // DÖNÜŞÜ OLMAYAN, GERÇEK bir sistem değişikliği — bu yüzden
+    // `ConfirmModal` ZORUNLU (kill_process/service_control/power_
+    // control ile AYNI ilke). Mevcut `agent_commands` kuyruğunu AYNEN
+    // kullanır — `install_update`/`install` komutu agent'ın komut-poll
+    // döngüsünde çekilip GERÇEK bir indirme+kurulum tetikler; bu süre
+    // (özellikle "Tümünü Yükle") dakikalar sürebilir, bu yüzden
+    // `pollAgentCommand`'a normalden ÇOK daha uzun bir `maxWaitMs`
+    // geçilir (varsayılan 15sn, kill/service komutları için yeterliydi
+    // ama gerçek bir Windows Update kurulumu için yetersiz).
+    if (!pendingInstall) return;
+    const { target, label } = pendingInstall;
+    setPendingInstall(null);
+    setInstallingTarget(target);
+    try {
+      const created = await submitAgentCommand(agentId, {
+        command_type: "install_update",
+        action: "install",
+        target,
+      });
+      if (created.status === "rejected") {
+        pushToast("error", cmdText.failure(created.result_detail ?? "reddedildi"));
+      } else {
+        const finalCommand = await pollAgentCommand(agentId, created.id, {
+          intervalMs: 3000,
+          maxWaitMs: 10 * 60 * 1000,
+        });
+        if (!finalCommand || finalCommand.status === "pending" || finalCommand.status === "sent") {
+          pushToast("error", cmdText.stillProcessing);
+        } else if (finalCommand.status === "succeeded") {
+          pushToast("success", d.windowsUpdates.installSuccess(finalCommand.result_detail ?? label));
+        } else {
+          pushToast("error", d.windowsUpdates.installFailure(finalCommand.result_detail ?? "başarısız"));
+        }
+      }
+    } catch (err) {
+      pushToast("error", cmdText.failure(err instanceof Error ? err.message : String(err)));
+    } finally {
+      setInstallingTarget(null);
+      // Yükleme sonucu ne olursa olsun tazele — agent HER durumda
+      // (`agent/main.py::_poll_and_execute_commands`'in `install_
+      // update` özel-durumu) taze bir tarama gönderir.
+      await loadWindowsUpdates();
+    }
+  };
+
   const handleWake = async () => {
     // Faz 37 — Wake-on-LAN. Agent'ın kendisiyle HİÇ konuşmaz — cihaz
     // Çevrimdışıyken de çağrılabilir, bu yüzden mevcut `pendingAction`/
@@ -273,6 +393,7 @@ export function AgentDetailView({ agentId }: Props) {
     { key: "processes", label: d.tabs.processes },
     { key: "services", label: d.tabs.services },
     { key: "sessions", label: d.tabs.sessions },
+    { key: "windowsUpdates", label: d.tabs.windowsUpdates },
   ];
 
   if (status === "loading") {
@@ -302,32 +423,47 @@ export function AgentDetailView({ agentId }: Props) {
           {t.agents.statusLabels[agent.status]}
         </span>
 
+        {/* Faz 60 — 3 bağlantı butonu. RDP/SSH artık bu ekrandan .rdp
+            indirme YERİNE mevcut PAM sayfalarına (`/pam/session/{assetId}`
+            Guacamole, `/pam/ssh/{assetId}` zero-knowledge) yönlendirir —
+            yeni bir endpoint/`/api/v1` AÇILMADI, PAM yetkilendirme modeli
+            (o asset için `pam_access_rules` + `PAM_ACCESS`) hedef sayfada
+            aynen zorunlu. RDP/SSH yalnızca agent GERÇEK bir cihaza bağlıysa
+            (`agent.asset_id`) tıklanabilir. CMD/Terminal ise Faz 35'in web
+            SSH terminalini (`/remote-control/ssh/{agentId}`) açar; etiketi
+            `agent.os`'a göre (windows → CMD/PowerShell, linux → Bash). */}
         <div className={styles.quickConnect}>
-          {agent.local_ip ? (
+          {linkedAsset ? (
             <>
-              <a
-                className={styles.quickConnectButton}
-                href={agentRdpConnectUrl(agent.id)}
-                download
-                title={agent.local_ip}
-              >
-                {d.quickConnect.rdp}
-              </a>
-              {/* Faz 35 — SSH artık .rdp gibi bir indirme/URI DEĞİL, tam
-                  bir web terminali (xterm.js) açan yeni bir sekme.
-                  Kimlik bilgisi backend'e ASLA bu sayfadan geçmez —
-                  yalnızca `/remote-control/ssh/{agentId}` kendi login
-                  formunda istenir (bkz. `components/SshTerminal.tsx`). */}
               <button
                 type="button"
                 className={styles.quickConnectButton}
-                onClick={() => window.open(`/remote-control/ssh/${agent.id}`, "_blank", "noopener,noreferrer")}
+                onClick={() => window.open(`/pam/session/${linkedAsset.id}`, "_blank", "noopener,noreferrer")}
               >
-                {d.quickConnect.ssh}
+                {d.quickConnect.rdpConnect}
+              </button>
+              <button
+                type="button"
+                className={styles.quickConnectButton}
+                onClick={() => window.open(`/pam/ssh/${linkedAsset.id}`, "_blank", "noopener,noreferrer")}
+              >
+                {d.quickConnect.sshConnect}
               </button>
             </>
           ) : (
-            <span className={styles.quickConnectUnavailable}>{d.quickConnect.unavailable}</span>
+            <span className={styles.quickConnectUnavailable} title={d.quickConnect.pamNeedsLinkedAsset}>
+              {d.quickConnect.pamNeedsLinkedAsset}
+            </span>
+          )}
+          {agent.local_ip && (
+            <button
+              type="button"
+              className={styles.quickConnectButton}
+              onClick={() => window.open(`/remote-control/ssh/${agent.id}`, "_blank", "noopener,noreferrer")}
+              title={agent.local_ip}
+            >
+              {agent.os === "windows" ? d.quickConnect.cmdWindows : d.quickConnect.cmdLinux}
+            </button>
           )}
 
           {/* Faz 37 — Güç ve Oturum Yönetimi. Reboot/Shutdown/Logoff
@@ -805,6 +941,185 @@ export function AgentDetailView({ agentId }: Props) {
             <p className={styles.noData}>{d.sessions.noData}</p>
           )}
         </div>
+      )}
+
+      {activeTab === "windowsUpdates" && (
+        <div>
+          {agent.os === "windows" && (
+            <div className={styles.tabToolbar}>
+              {checkingUpdates ? (
+                <span className={styles.checkingNotice} role="status">
+                  {d.windowsUpdates.checking}
+                </span>
+              ) : (
+                <>
+                  {installableCount > 0 && (
+                    <button
+                      type="button"
+                      className={styles.refreshButton}
+                      disabled={installingTarget !== null}
+                      onClick={() =>
+                        setPendingInstall({ target: "all", label: d.windowsUpdates.installAll })
+                      }
+                    >
+                      {installingTarget === "all" ? d.windowsUpdates.installing : d.windowsUpdates.installAll}
+                    </button>
+                  )}
+                  <button type="button" className={styles.refreshButton} onClick={handleCheckUpdates}>
+                    {d.windowsUpdates.checkNow}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {agent.os !== "windows" ? (
+            <p className={styles.noData}>{d.windowsUpdates.linuxUnsupported}</p>
+          ) : windowsUpdatesStatus === "loading" ? (
+            <p className={styles.status}>{t.common.loading}</p>
+          ) : windowsUpdatesStatus === "error" ? (
+            <p className={styles.error}>{d.windowsUpdates.loadError}</p>
+          ) : windowsUpdates === null ? (
+            <p className={styles.noData}>{d.windowsUpdates.neverScanned}</p>
+          ) : (
+            <div>
+              <dl className={styles.fields}>
+                <div className={styles.field}>
+                  <dt>{d.windowsUpdates.scannedAt}</dt>
+                  <dd>{formatTimestamp(windowsUpdates.collected_at)}</dd>
+                </div>
+                <div className={styles.field}>
+                  <dt>{d.windowsUpdates.scanMethod}</dt>
+                  <dd>{d.windowsUpdates.scanMethodLabels[windowsUpdates.scan_method]}</dd>
+                </div>
+                <div className={styles.field}>
+                  <dt>{d.windowsUpdates.isAdmin}</dt>
+                  <dd>{windowsUpdates.is_admin ? t.common.yes : t.common.no}</dd>
+                </div>
+              </dl>
+
+              {windowsUpdates.scan_method === "installed_hotfixes" && (
+                <p className={styles.error} role="status">
+                  {d.windowsUpdates.fallbackNotice}
+                </p>
+              )}
+
+              {windowsUpdates.reboot_required && (
+                <div className={styles.rebootBanner} role="alert">
+                  <span>{d.windowsUpdates.rebootRequiredBanner}</span>
+                  <button
+                    type="button"
+                    className={styles.actionButtonDanger}
+                    onClick={() => requestPowerAction("reboot", t.powerActions.reboot)}
+                  >
+                    {d.windowsUpdates.rebootNow}
+                  </button>
+                </div>
+              )}
+
+              {windowsUpdates.updates.length > 0 ? (
+                <div className={styles.tableWrap}>
+                  <table className={styles.table}>
+                    <thead>
+                      <tr>
+                        <th>{d.windowsUpdates.columns.kb}</th>
+                        <th>{d.windowsUpdates.columns.title}</th>
+                        <th>{d.windowsUpdates.columns.size}</th>
+                        {windowsUpdates.scan_method === "com" && <th>{d.windowsUpdates.columns.actions}</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {windowsUpdates.updates.map((update, idx) => {
+                        const rowKey = `${update.kb_number ?? "unknown"}-${idx}`;
+                        const kbUrl = update.kb_number ? windowsUpdateKbSupportUrl(update.kb_number) : null;
+                        const isExpanded = expandedRow === rowKey;
+                        const installTarget = update.kb_number ?? update.title;
+                        return (
+                          <Fragment key={rowKey}>
+                            <tr>
+                              <td className={styles.mono}>
+                                {kbUrl ? (
+                                  <a
+                                    href={kbUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={d.windowsUpdates.kbLinkLabel}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {update.kb_number}
+                                  </a>
+                                ) : (
+                                  (update.kb_number ?? "-")
+                                )}
+                              </td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className={styles.linkLikeButton}
+                                  onClick={() => setExpandedRow(isExpanded ? null : rowKey)}
+                                  aria-expanded={isExpanded}
+                                >
+                                  {update.title}
+                                </button>
+                              </td>
+                              <td>{formatUpdateSize(update.size_bytes)}</td>
+                              {windowsUpdates.scan_method === "com" && (
+                                <td>
+                                  {installingTarget === installTarget || installingTarget === "all" ? (
+                                    <span className={styles.checkingNotice}>{d.windowsUpdates.installing}</span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      className={styles.actionButton}
+                                      disabled={installingTarget !== null}
+                                      onClick={() =>
+                                        setPendingInstall({ target: installTarget, label: installTarget })
+                                      }
+                                    >
+                                      {d.windowsUpdates.installNow}
+                                    </button>
+                                  )}
+                                </td>
+                              )}
+                            </tr>
+                            {isExpanded && (
+                              <tr>
+                                <td colSpan={windowsUpdates.scan_method === "com" ? 4 : 3} className={styles.noData}>
+                                  {update.description || d.windowsUpdates.noDescription}
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className={styles.noData}>
+                  {windowsUpdates.scan_method === "installed_hotfixes"
+                    ? d.windowsUpdates.noHotfixes
+                    : d.windowsUpdates.noUpdates}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {pendingInstall && (
+        <ConfirmModal
+          title={d.windowsUpdates.confirmInstallTitle}
+          message={
+            pendingInstall.target === "all"
+              ? d.windowsUpdates.confirmInstallAll(installableCount)
+              : d.windowsUpdates.confirmInstallOne(pendingInstall.label)
+          }
+          confirmLabel={cmdText.confirmButton}
+          cancelLabel={cmdText.cancelButton}
+          onConfirm={handleConfirmInstall}
+          onCancel={() => setPendingInstall(null)}
+        />
       )}
 
       {pendingAction && (

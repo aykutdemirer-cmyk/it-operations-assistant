@@ -6,3 +6,12 @@
 # kullanılır, agent'ın kendi kaynağına GPL şartı BULAŞTIRMAZ (bkz.
 # docs/decisions.md).
 pyinstaller==6.22.2
+
+# Yalnızca Windows Servisi build'i (IT-Operations-Agent-Service.spec)
+# için — SCM (Service Control Manager) protokolünü doğru implemente
+# edebilmek üzere `agent/winservice.py` tarafından kullanılır (bkz. o
+# modülün docstring'i — düz bir konsol EXE'si `sc.exe`'den gerçek bir
+# graceful-stop sinyali ALAMAZ). PSF/BSD benzeri lisans, agent'ın
+# runtime bağımlılığına (yalnızca psutil) hiç eklenmedi — yalnızca
+# build-time.
+pywin32==311

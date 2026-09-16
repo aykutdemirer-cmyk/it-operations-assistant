@@ -4,16 +4,35 @@ hiçbir etkisi yok. Gerçek bir SNMP ağ trafiği yalnızca "Test Connection"
 testlerinde SÖZ KONUSU OLABİLİRDİ — o yüzden `SNMPClient.poll_asset`
 HER ZAMAN mock'lanır, hiçbir gerçek UDP paketi gönderilmez."""
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.db.assets import upsert_asset
 from app.snmp.models import SNMPPollResult, SystemInfo
 
 
 @pytest.fixture(autouse=True)
 async def _clean_snmp_profiles_table(isolated_db):
-    await isolated_db.execute("TRUNCATE TABLE snmp_profiles CASCADE")
+    await isolated_db.execute("TRUNCATE TABLE snmp_profiles, assets CASCADE")
+
+
+async def _seed_asset(isolated_db, **overrides) -> dict:
+    defaults = dict(
+        ip_address="10.0.213.254",
+        hostname="fw01",
+        mac_address=None,
+        vendor=None,
+        device_type="firewall",
+        confidence="medium",
+        status="up",
+        open_ports=[],
+        evidence=[],
+        last_seen=datetime.now(timezone.utc),
+    )
+    defaults.update(overrides)
+    return await upsert_asset(isolated_db, **defaults)
 
 
 def _v2c_payload(**overrides) -> dict:
@@ -55,7 +74,12 @@ async def test_list_profiles_returns_empty_list_when_none_exist(client):
 
 
 @pytest.mark.anyio
-async def test_create_v2c_profile_returns_201_without_secret(client, monkeypatch):
+async def test_create_v2c_profile_is_ready_with_plain_text_community(client, monkeypatch):
+    """`community_ref` bir `.env` değişkeni olarak TANIMLI DEĞİLSE bile
+    artık `not_configured`'a düşmek yerine düz metin community string
+    olarak kabul edilir (kullanıcı isteği — bkz. `secrets.py::
+    resolve_secret` `allow_literal_fallback`). Eskiden bu profil
+    sürekli "Yapılandırılmadı" gösteriyordu."""
     monkeypatch.delenv("SNMP_CORE_SWITCH_COMMUNITY", raising=False)
 
     response = await client.post("/api/snmp/profiles", json=_v2c_payload())
@@ -63,8 +87,8 @@ async def test_create_v2c_profile_returns_201_without_secret(client, monkeypatch
     assert response.status_code == 201
     body = response.json()
     assert body["name"] == "Core Switches"
-    assert body["credential_configured"] is False
-    assert body["status"] == "not_configured"
+    assert body["credential_configured"] is True
+    assert body["status"] == "ready"
     forbidden_keys = {"community_string", "password", "secret", "auth_secret", "priv_secret"}
     assert forbidden_keys.isdisjoint(body.keys())
 
@@ -262,13 +286,29 @@ async def test_test_connection_returns_not_configured_when_disabled(client):
 
 
 @pytest.mark.anyio
-async def test_test_connection_returns_not_configured_when_secret_missing(client, monkeypatch):
+async def test_test_connection_uses_literal_community_when_not_an_env_var(client, monkeypatch):
+    """`community_ref` bir `.env` değişkeni olarak bulunamıyorsa artık
+    `not_configured`'a düşmek yerine metnin kendisi community string
+    olarak kullanılarak GERÇEKTEN bir poll denenir (burada mock'lanır —
+    hiçbir gerçek UDP paketi gönderilmez)."""
     monkeypatch.delenv("SNMP_CORE_SWITCH_COMMUNITY", raising=False)
     created = (await client.post("/api/snmp/profiles", json=_v2c_payload())).json()
 
-    response = await client.post(f"/api/snmp/profiles/{created['id']}/test")
+    fake_result = SNMPPollResult(
+        asset_id=created["id"],
+        polled_at="2026-08-26T00:00:00Z",
+        status="success",
+        system=SystemInfo(
+            sys_name="core-sw-01", sys_descr="Cisco IOS", sys_object_id="1.3.6.1.4.1.9", sys_uptime_ticks=100
+        ),
+    )
+    with patch(
+        "app.snmp.profile_service.SNMPClient.poll_asset", AsyncMock(return_value=fake_result)
+    ) as poll_mock:
+        response = await client.post(f"/api/snmp/profiles/{created['id']}/test")
 
-    assert response.json()["status"] == "not_configured"
+    assert response.json()["status"] == "connected"
+    poll_mock.assert_awaited_once()
 
 
 @pytest.mark.anyio
@@ -320,3 +360,210 @@ async def test_profiles_returns_503_when_database_unreachable(client):
 
     assert response.status_code == 503
     assert response.json()["detail"] == {"database": "unreachable"}
+
+
+# --- Auto-assign (kullanıcı isteği: target_host bir asset'in IP'siyle
+# eşleşiyorsa profili o asset'e otomatik ata) ---
+
+
+@pytest.mark.anyio
+async def test_create_profile_auto_assigns_when_target_host_matches_asset_ip(client, isolated_db):
+    asset = await _seed_asset(isolated_db, ip_address="10.0.213.254")
+
+    response = await client.post(
+        "/api/snmp/profiles", json=_v2c_payload(target_host="10.0.213.254")
+    )
+
+    assert response.status_code == 201
+    assert response.json()["assigned_asset_count"] == 1
+    assigned = await client.get(f"/api/assets/{asset['id']}/snmp-profile")
+    assert assigned.json()["configured"] is True
+
+
+@pytest.mark.anyio
+async def test_create_profile_does_not_auto_assign_when_no_asset_matches(client):
+    response = await client.post(
+        "/api/snmp/profiles", json=_v2c_payload(target_host="10.0.213.254")
+    )
+
+    assert response.status_code == 201
+    assert response.json()["assigned_asset_count"] == 0
+
+
+@pytest.mark.anyio
+async def test_create_profile_auto_assign_never_overwrites_an_existing_manual_assignment(
+    client, isolated_db
+):
+    asset = await _seed_asset(isolated_db, ip_address="10.0.213.254")
+    manual_profile = (
+        await client.post(
+            "/api/snmp/profiles", json=_v2c_payload(name="Manual", target_host="10.0.0.1")
+        )
+    ).json()
+    await client.put(f"/api/assets/{asset['id']}/snmp-profile/{manual_profile['id']}")
+
+    response = await client.post(
+        "/api/snmp/profiles", json=_v2c_payload(name="Auto", target_host="10.0.213.254")
+    )
+
+    assert response.status_code == 201
+    assert response.json()["assigned_asset_count"] == 0  # yeni profil atanmadı
+    assigned = await client.get(f"/api/assets/{asset['id']}/snmp-profile")
+    assert assigned.json()["profile"]["id"] == manual_profile["id"]  # elle yapılan atama korundu
+
+
+@pytest.mark.anyio
+async def test_update_profile_auto_assigns_when_new_target_host_matches_asset_ip(client, isolated_db):
+    asset = await _seed_asset(isolated_db, ip_address="10.0.213.254")
+    created = (
+        await client.post("/api/snmp/profiles", json=_v2c_payload(target_host="10.0.0.1"))
+    ).json()
+    assert created["assigned_asset_count"] == 0
+
+    response = await client.put(
+        f"/api/snmp/profiles/{created['id']}", json=_v2c_payload(target_host="10.0.213.254")
+    )
+
+    assert response.json()["assigned_asset_count"] == 1
+    assigned = await client.get(f"/api/assets/{asset['id']}/snmp-profile")
+    assert assigned.json()["profile"]["id"] == created["id"]
+
+
+@pytest.mark.anyio
+async def test_successful_test_connection_auto_assigns_when_target_host_matches_asset_ip(
+    client, isolated_db
+):
+    asset = await _seed_asset(isolated_db, ip_address="10.0.213.254")
+    created = (
+        await client.post("/api/snmp/profiles", json=_v2c_payload(target_host="10.0.213.254"))
+    ).json()
+    # `create_profile` zaten otomatik atamış olabilir — atamayı kaldırıp
+    # yalnızca "Test Connection" akışının KENDİSİNİN de auto-assign
+    # tetiklediğini izole doğrulamak için önce temizleniyor.
+    await client.delete(f"/api/assets/{asset['id']}/snmp-profile")
+
+    fake_result = SNMPPollResult(
+        asset_id=created["id"],
+        polled_at="2026-08-26T00:00:00Z",
+        status="success",
+        system=SystemInfo(sys_name="fw01"),
+    )
+    with patch("app.snmp.profile_service.SNMPClient.poll_asset", AsyncMock(return_value=fake_result)):
+        response = await client.post(f"/api/snmp/profiles/{created['id']}/test")
+
+    assert response.json()["status"] == "connected"
+    assigned = await client.get(f"/api/assets/{asset['id']}/snmp-profile")
+    assert assigned.json()["profile"]["id"] == created["id"]
+
+
+# --- Eşleşen asset yokken "Test Connection" GERÇEKTEN bağlandıysa yeni
+# bir asset oluşturur (kullanıcı bildirimi: ICMP'yi engelleyen bir
+# firewall/switch Network Discovery ile ASLA asset olmuyordu, SNMP
+# profili "Hazır"/"Bağlandı" görünse bile Monitoring'de hiç veri
+# çıkmıyordu — çünkü arka plan poller'ı yalnızca MEVCUT asset'leri
+# dolaşır). ---
+
+
+@pytest.mark.anyio
+async def test_test_connection_creates_asset_when_none_matches_and_connection_succeeds(client):
+    created = (
+        await client.post("/api/snmp/profiles", json=_v2c_payload(target_host="10.0.213.254"))
+    ).json()
+    assert created["assigned_asset_count"] == 0  # eşleşen bir asset yok
+
+    fake_result = SNMPPollResult(
+        asset_id=created["id"],
+        polled_at="2026-08-26T00:00:00Z",
+        status="success",
+        system=SystemInfo(sys_name="PSL-HQ-70G-1.alb.local", sys_descr="FortiGate-70G v7.0"),
+    )
+    with patch("app.snmp.profile_service.SNMPClient.poll_asset", AsyncMock(return_value=fake_result)):
+        response = await client.post(f"/api/snmp/profiles/{created['id']}/test")
+
+    assert response.json()["status"] == "connected"
+
+    assets = (await client.get("/api/assets")).json()
+    matching = [a for a in assets if a["ip_address"] == "10.0.213.254"]
+    assert len(matching) == 1
+    new_asset = matching[0]
+    assert new_asset["hostname"] == "PSL-HQ-70G-1.alb.local"
+    assert new_asset["device_type"] == "firewall"  # sysDescr'deki "FortiGate"den çıkarıldı
+    assert new_asset["confidence"] == "medium"
+    assert new_asset["status"] == "up"
+
+    assigned = await client.get(f"/api/assets/{new_asset['id']}/snmp-profile")
+    assert assigned.json()["profile"]["id"] == created["id"]
+
+
+@pytest.mark.anyio
+async def test_test_connection_does_not_create_asset_when_connection_fails(client):
+    created = (
+        await client.post("/api/snmp/profiles", json=_v2c_payload(target_host="10.0.213.254"))
+    ).json()
+
+    fake_result = SNMPPollResult(
+        asset_id=created["id"], polled_at="2026-08-26T00:00:00Z", status="timeout", error="zaman aşımı"
+    )
+    with patch("app.snmp.profile_service.SNMPClient.poll_asset", AsyncMock(return_value=fake_result)):
+        await client.post(f"/api/snmp/profiles/{created['id']}/test")
+
+    assets = (await client.get("/api/assets")).json()
+    assert not any(a["ip_address"] == "10.0.213.254" for a in assets)
+
+
+@pytest.mark.anyio
+async def test_test_connection_defaults_to_network_device_when_sys_descr_gives_no_hint(client):
+    created = (
+        await client.post("/api/snmp/profiles", json=_v2c_payload(target_host="10.0.213.254"))
+    ).json()
+
+    fake_result = SNMPPollResult(
+        asset_id=created["id"], polled_at="2026-08-26T00:00:00Z", status="success",
+        system=SystemInfo(sys_name="mystery-device", sys_descr="Some Custom Firmware 1.0"),
+    )
+    with patch("app.snmp.profile_service.SNMPClient.poll_asset", AsyncMock(return_value=fake_result)):
+        await client.post(f"/api/snmp/profiles/{created['id']}/test")
+
+    assets = (await client.get("/api/assets")).json()
+    matching = [a for a in assets if a["ip_address"] == "10.0.213.254"]
+    assert matching[0]["device_type"] == "network_device"
+
+
+@pytest.mark.anyio
+async def test_test_connection_uses_profile_name_when_sys_descr_gives_no_hint(client):
+    """Gerçek kullanıcı bildirimiyle bulunan bir senaryo: bir
+    FortiGate'in sysDescr'i yalnızca kurum-içi bir adlandırma
+    döndürüyordu ("PSL_HQ_FGT") — hiçbir üretici/cihaz anahtar kelimesi
+    içermiyordu. Kullanıcının profile verdiği GERÇEK ad ("FW") ikinci
+    bir sinyal olarak kullanılır."""
+    created = (
+        await client.post(
+            "/api/snmp/profiles", json=_v2c_payload(name="FW", target_host="10.0.213.254")
+        )
+    ).json()
+
+    fake_result = SNMPPollResult(
+        asset_id=created["id"], polled_at="2026-08-26T00:00:00Z", status="success",
+        system=SystemInfo(sys_name="PSL-HQ-70G-1.alb.local", sys_descr="PSL_HQ_FGT"),
+    )
+    with patch("app.snmp.profile_service.SNMPClient.poll_asset", AsyncMock(return_value=fake_result)):
+        await client.post(f"/api/snmp/profiles/{created['id']}/test")
+
+    assets = (await client.get("/api/assets")).json()
+    matching = [a for a in assets if a["ip_address"] == "10.0.213.254"]
+    assert matching[0]["device_type"] == "firewall"
+
+
+@pytest.mark.anyio
+async def test_create_profile_never_creates_an_asset_even_without_a_live_poll(client):
+    """`create_profile`/`replace_profile` HİÇBİR ZAMAN canlı bir poll
+    yapmaz — bu yüzden `confirmed_system` YOKTUR, bir asset asla
+    UYDURULMAZ (yalnızca `test_connection`'ın GERÇEK bağlantı kanıtı
+    asset oluşturabilir)."""
+    response = await client.post(
+        "/api/snmp/profiles", json=_v2c_payload(target_host="10.0.213.254")
+    )
+    assert response.json()["assigned_asset_count"] == 0
+
+    assets = (await client.get("/api/assets")).json()
+    assert not any(a["ip_address"] == "10.0.213.254" for a in assets)

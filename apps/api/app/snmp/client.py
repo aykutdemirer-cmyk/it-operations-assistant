@@ -56,7 +56,16 @@ from app.snmp.exceptions import (
     SNMPUnavailableError,
 )
 from app.snmp.models import IfStatus, InterfaceInfo, SNMPPollResult, SystemInfo
-from app.snmp.oid_map import INTERFACE_OIDS, SYSTEM_OIDS
+from app.snmp.oid_map import (
+    HR_PROCESSOR_LOAD_BASE_OID,
+    HR_STORAGE_ALLOC_UNITS_BASE_OID,
+    HR_STORAGE_RAM_TYPE_OID,
+    HR_STORAGE_SIZE_BASE_OID,
+    HR_STORAGE_TYPE_BASE_OID,
+    HR_STORAGE_USED_BASE_OID,
+    INTERFACE_OIDS,
+    SYSTEM_OIDS,
+)
 from app.snmp.secrets import resolve_secret
 
 logger = logging.getLogger(__name__)
@@ -247,13 +256,15 @@ class SNMPClient:
     async def _poll_v2c(
         self, profile: SNMPProfile, host: str, asset_id: UUID, polled_at: datetime, started: float
     ) -> SNMPPollResult:
-        community = resolve_secret(profile.community_ref)
+        community = resolve_secret(profile.community_ref, allow_literal_fallback=True)
         if not community:
-            # Referans var ama .env'de gerçek değer tanımlı değil —
-            # bu da fiilen "yapılandırılmamış" demektir.
+            # `allow_literal_fallback=True` iken `community_ref` boş/None
+            # OLMADIĞI sürece asla None dönmez (bulunamazsa metnin
+            # kendisi kullanılır) — bu dal artık yalnızca community
+            # string hiç girilmemişse tetiklenir.
             return self._not_configured_result(
                 asset_id, polled_at,
-                f"'{profile.community_ref}' ortam değişkeni tanımlı değil (community secret çözümlenemedi).",
+                "Community string girilmemiş.",
             )
 
         with Slim(version=2) as slim:
@@ -371,6 +382,25 @@ class SNMPClient:
                 duration_ms=_elapsed_ms(started),
             )
 
+        # HOST-RESOURCES-MIB (CPU/Bellek) — BİLİNÇLİ olarak system GET'in
+        # kendi try/except'inden AYRI: çoğu switch/router/firewall bu
+        # MIB'i hiç desteklemez, bu asla bir poll hatası SAYILMAZ,
+        # yalnızca alanlar `None` kalır (bkz. oid_map.py docstring'i).
+        try:
+            cpu_percent, memory_used_bytes, memory_total_bytes = await self._get_cpu_memory_info(transport)
+        except Exception:  # noqa: BLE001 — HOST-RESOURCES-MIB opsiyonel, hiçbir hata poll'u durdurmaz
+            logger.debug(
+                "HOST-RESOURCES-MIB (CPU/Bellek) desteklenmiyor gibi görünüyor (asset_id=%s)", asset_id
+            )
+            cpu_percent, memory_used_bytes, memory_total_bytes = None, None, None
+        system = system.model_copy(
+            update={
+                "cpu_percent": cpu_percent,
+                "memory_used_bytes": memory_used_bytes,
+                "memory_total_bytes": memory_total_bytes,
+            }
+        )
+
         try:
             if_indexes = await self._discover_if_indexes(transport)
         except SNMPError as exc:
@@ -458,6 +488,106 @@ class SNMPClient:
                 break
 
         return if_indexes
+
+    async def _bulk_walk(self, transport: _Transport, base_oid: str) -> list[tuple[str, object]]:
+        """`base_oid` alt ağacını GETBULK ile sondan sona dolaşır,
+        `(tam_oid, ham_değer)` çiftlerini döner — `_discover_if_indexes`
+        ile AYNI "ilerleme yoksa dur" + sonsuz-döngü güvenlik sınırı
+        (`_MAX_BULK_ROUNDS`) mantığını, farklı bir subtree için
+        genelleştirir (HOST-RESOURCES-MIB tabloları — bkz.
+        `_get_cpu_percent`/`_get_memory_bytes`)."""
+        current_oid = base_oid
+        seen: set[str] = set()
+        out: list[tuple[str, object]] = []
+
+        for _ in range(_MAX_BULK_ROUNDS):
+            error_indication, error_status, _error_index, var_binds = await transport.bulk(
+                0, _MAX_REPETITIONS, ObjectType(ObjectIdentity(current_oid))
+            )
+            if error_indication is not None:
+                raise _translate_error_indication(error_indication)
+            if error_status:
+                raise SNMPProtocolError(f"{base_oid} GETBULK errorStatus={error_status}")
+            if not var_binds:
+                break
+
+            advanced = False
+            for var_bind in var_binds:
+                oid_str = str(var_bind[0])
+                if not oid_str.startswith(base_oid + "."):
+                    continue
+                if _is_missing_value(var_bind[1]):
+                    continue
+                if oid_str in seen:
+                    continue
+                seen.add(oid_str)
+                current_oid = oid_str
+                advanced = True
+                out.append((oid_str, var_bind[1]))
+
+            if not advanced:
+                break
+
+        return out
+
+    async def _get_cpu_memory_info(
+        self, transport: _Transport
+    ) -> tuple[float | None, int | None, int | None]:
+        """HOST-RESOURCES-MIB — bkz. `oid_map.py`. Çağıran taraf
+        (`_poll_with_transport`) bunu her zaman geniş bir `try/except`
+        içinde çağırır; burada da her alt adım kendi içinde
+        `SNMPError`'ı yutup `None` döner — bu MIB'i implemente
+        ETMEYEN (çoğu switch/router/firewall) bir ajanda asla poll'un
+        genel `status`'unu etkilemez."""
+        cpu_percent = await self._get_cpu_percent(transport)
+        memory_used_bytes, memory_total_bytes = await self._get_memory_bytes(transport)
+        return cpu_percent, memory_used_bytes, memory_total_bytes
+
+    async def _get_cpu_percent(self, transport: _Transport) -> float | None:
+        try:
+            entries = await self._bulk_walk(transport, HR_PROCESSOR_LOAD_BASE_OID)
+        except SNMPError:
+            return None
+        loads = [load for _, raw in entries if (load := _as_int(raw)) is not None]
+        if not loads:
+            return None
+        # Birden fazla çekirdek/işlemci varsa ortalaması — tek bir
+        # değer UYDURULMAZ, gerçekten dönen tüm `hrProcessorLoad`
+        # satırlarının aritmetik ortalamasıdır.
+        return sum(loads) / len(loads)
+
+    async def _get_memory_bytes(self, transport: _Transport) -> tuple[int | None, int | None]:
+        try:
+            type_entries = await self._bulk_walk(transport, HR_STORAGE_TYPE_BASE_OID)
+        except SNMPError:
+            return None, None
+
+        ram_index: str | None = None
+        for oid_str, raw in type_entries:
+            if _as_str(raw) == HR_STORAGE_RAM_TYPE_OID:
+                ram_index = oid_str[len(HR_STORAGE_TYPE_BASE_OID) + 1 :]
+                break
+        if ram_index is None:
+            # Ajan hrStorageTable'ı desteklemiyor VEYA RAM satırı yok —
+            # ikisi de dürüstçe "veri yok" demek, hata DEĞİL.
+            return None, None
+
+        var_binds_in = [
+            ObjectType(ObjectIdentity(f"{HR_STORAGE_SIZE_BASE_OID}.{ram_index}")),
+            ObjectType(ObjectIdentity(f"{HR_STORAGE_USED_BASE_OID}.{ram_index}")),
+            ObjectType(ObjectIdentity(f"{HR_STORAGE_ALLOC_UNITS_BASE_OID}.{ram_index}")),
+        ]
+        error_indication, error_status, _error_index, var_binds = await transport.get(*var_binds_in)
+        if error_indication is not None or error_status:
+            return None, None
+
+        size_units = _as_int(var_binds[0][1])
+        used_units = _as_int(var_binds[1][1])
+        alloc_units = _as_int(var_binds[2][1])
+        if size_units is None or used_units is None or alloc_units is None or alloc_units <= 0:
+            return None, None
+
+        return used_units * alloc_units, size_units * alloc_units
 
     async def _get_interface_info(self, transport: _Transport, if_index: int, asset_id: UUID) -> InterfaceInfo:
         # `ifTable` (MIB-II, RFC 1213) ve `ifXTable` (IF-MIB uzantısı, RFC

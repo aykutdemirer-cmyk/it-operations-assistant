@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 import { fetchAssetSnmpProfile } from "@/lib/api";
 import type { Asset, AssetSnmpProfileResponse } from "@/lib/api";
 import { useDashboardData } from "@/lib/DashboardDataProvider";
 import { useLocale } from "@/lib/i18n/LocaleProvider";
 import type { translations } from "@/lib/i18n/translations";
+import { classifyPortRisk } from "@/lib/portRisk";
 import { AssetDetails } from "@/components/AssetDetails";
 import { PortBadges } from "@/components/PortBadges";
 import styles from "./AssetInventory.module.css";
@@ -58,7 +60,29 @@ export function AssetInventory() {
   const [deviceTypeFilter, setDeviceTypeFilter] = useState(ALL);
   const [vendorFilter, setVendorFilter] = useState(ALL);
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>(ALL);
+  const [highRiskOnly, setHighRiskOnly] = useState(false);
   const [snmpByAsset, setSnmpByAsset] = useState<Record<string, AssetSnmpProfileResponse>>({});
+
+  // Dashboard KPI kartlarından tıklanarak gelen hızlı filtreler
+  // (`?status=`/`?deviceType=`/`?highRisk=`) — bkz. `DashboardSummary.tsx`.
+  // Yalnızca İLK yüklemede uygulanır, sonrasında kullanıcı filtreleri
+  // kendi değiştirebilir (URL sürekli senkron tutulmaz).
+  const searchParams = useSearchParams();
+  const appliedDeepLink = useRef(false);
+  useEffect(() => {
+    if (appliedDeepLink.current) return;
+    appliedDeepLink.current = true;
+    const statusParam = searchParams.get("status");
+    const deviceTypeParam = searchParams.get("deviceType");
+    const highRiskParam = searchParams.get("highRisk");
+    if (!statusParam && !deviceTypeParam && !highRiskParam) return;
+
+    Promise.resolve().then(() => {
+      if (statusParam === "up" || statusParam === "down") setStatusFilter(statusParam);
+      if (deviceTypeParam) setDeviceTypeFilter(deviceTypeParam);
+      if (highRiskParam === "1") setHighRiskOnly(true);
+    });
+  }, [searchParams]);
 
   function handleRefresh() {
     refetchAssets();
@@ -106,6 +130,9 @@ export function AssetInventory() {
       if (confidenceFilter !== ALL && asset.confidence !== confidenceFilter) {
         return false;
       }
+      if (highRiskOnly && !asset.open_ports.some((p) => classifyPortRisk(p.port) === "HIGH")) {
+        return false;
+      }
       if (query) {
         const haystack = [
           asset.ip_address,
@@ -120,7 +147,7 @@ export function AssetInventory() {
       }
       return true;
     });
-  }, [assets, search, statusFilter, deviceTypeFilter, vendorFilter, confidenceFilter]);
+  }, [assets, search, statusFilter, deviceTypeFilter, vendorFilter, confidenceFilter, highRiskOnly]);
 
   const a = t.assets;
 
@@ -201,6 +228,14 @@ export function AssetInventory() {
             <option value="medium">{t.confidence.medium}</option>
             <option value="low">{t.confidence.low}</option>
           </select>
+          <label className={styles.checkboxFilter}>
+            <input
+              type="checkbox"
+              checked={highRiskOnly}
+              onChange={(event) => setHighRiskOnly(event.target.checked)}
+            />
+            {a.highRiskOnly}
+          </label>
         </div>
       )}
 

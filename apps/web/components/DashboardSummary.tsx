@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import type { Asset } from "@/lib/api";
 import { useDashboardData } from "@/lib/DashboardDataProvider";
 import { computeInfrastructureHealth } from "@/lib/health";
@@ -25,7 +27,7 @@ function healthAccent(percent: number | null): "up" | "warning" | "down" | "neut
  * KPI kartı. "Son Görülme" artık devasa bir kart değil, sağ üst köşede
  * pasif bir metin (bkz. `lastScan`). */
 export function DashboardSummary() {
-  const { assets, assetsStatus } = useDashboardData();
+  const { assets, assetsStatus, refetchAssets } = useDashboardData();
   const { t } = useLocale();
   const s = t.dashboard.summary;
   const showValues = assetsStatus === "done";
@@ -46,10 +48,25 @@ export function DashboardSummary() {
         <span className={styles.lastScan}>
           {lastSeen ? `${s.lastSeen}: ${new Date(lastSeen).toLocaleString()}` : `${s.lastSeen}: -`}
         </span>
+        <button
+          type="button"
+          className={styles.refreshButton}
+          onClick={() => refetchAssets()}
+          disabled={assetsStatus === "loading"}
+        >
+          {assetsStatus === "loading" ? t.common.refreshing : t.common.refresh}
+        </button>
       </div>
 
+      {/* Faz: her KPI kartı artık `/assets`'e filtrelenmiş bir hızlı
+          bağlantı (kullanıcı isteği) + hover tooltip (`title`) taşıyor —
+          gerçek bir filtre sonucuna gider, uydurma bir sayım DEĞİL. */}
       <section className={styles.grid} aria-label={t.common.dashboardSummaryAriaLabel}>
-        <div className={`${styles.card} ${styles["accent-neutral"]}`}>
+        <Link
+          href="/assets"
+          className={`${styles.card} ${styles["accent-neutral"]}`}
+          title={`${s.totalAssetsDesc} — ${s.clickHint}`}
+        >
           <div className={styles.cardTop}>
             <span className={styles.icon} aria-hidden="true">🖥️</span>
             <span className={styles.label}>{s.totalAssets}</span>
@@ -63,9 +80,13 @@ export function DashboardSummary() {
               🔴 {showValues ? offlineCount : "–"} {s.offline}
             </span>
           </div>
-        </div>
+        </Link>
 
-        <div className={`${styles.card} ${styles["accent-violet"]}`}>
+        <Link
+          href="/assets?highRisk=1"
+          className={`${styles.card} ${styles["accent-violet"]}`}
+          title={`${s.highRiskPortsDesc} — ${s.clickHint}`}
+        >
           <div className={styles.cardTop}>
             <span className={styles.icon} aria-hidden="true">🔓</span>
             <span className={styles.label}>{s.highRiskPortsCard}</span>
@@ -74,18 +95,26 @@ export function DashboardSummary() {
           <span className={styles.description}>
             {showValues ? `${totalOpenPorts} ${s.openPorts.toLowerCase()}` : s.highRiskPortsDesc}
           </span>
-        </div>
+        </Link>
 
-        <div className={`${styles.card} ${styles["accent-neutral"]}`}>
+        <Link
+          href="/assets?deviceType=unknown"
+          className={`${styles.card} ${styles["accent-neutral"]}`}
+          title={`${s.unknownDesc} — ${s.clickHint}`}
+        >
           <div className={styles.cardTop}>
             <span className={styles.icon} aria-hidden="true">❓</span>
             <span className={styles.label}>{s.unknown}</span>
           </div>
           <span className={styles.value}>{showValues ? unknownCount : "–"}</span>
           <span className={styles.description}>{s.unknownDesc}</span>
-        </div>
+        </Link>
 
-        <div className={`${styles.card} ${styles[`accent-${accent}`]}`}>
+        <Link
+          href="/assets?status=down"
+          className={`${styles.card} ${styles[`accent-${accent}`]}`}
+          title={`${s.healthScoreDesc} — ${s.clickHint}`}
+        >
           <div className={styles.cardTop}>
             <span className={styles.icon} aria-hidden="true">🛡️</span>
             <span className={styles.label}>{s.healthScoreCard}</span>
@@ -94,7 +123,7 @@ export function DashboardSummary() {
             {showValues && health.availabilityPercent != null ? `${health.availabilityPercent}%` : "–"}
           </span>
           <span className={styles.description}>{s.healthScoreDesc}</span>
-        </div>
+        </Link>
       </section>
     </div>
   );

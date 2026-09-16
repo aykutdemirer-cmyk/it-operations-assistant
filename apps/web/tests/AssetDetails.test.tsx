@@ -1,10 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AssetDetails } from "@/components/AssetDetails";
-import { LocaleProvider } from "@/lib/i18n/LocaleProvider";
 import { tr } from "@/lib/i18n/translations";
 import type { Asset } from "@/lib/api";
+import { mockAssetsAndScans, renderWithProviders } from "./testUtils";
 
 const ASSET: Asset = {
   id: "11111111-1111-1111-1111-111111111111",
@@ -41,11 +41,13 @@ const NULL_ASSET: Asset = {
 };
 
 function renderAssetDetails(asset: Asset, onClose: () => void) {
-  return render(
-    <LocaleProvider>
-      <AssetDetails asset={asset} onClose={onClose} />
-    </LocaleProvider>,
-  );
+  // Faz 70 — `AssetDetails` artık `useDashboardData()` (SNMP alert'leri
+  // için `monitoring`) çağırıyor, bu yüzden bir `DashboardDataProvider`
+  // ata gerekiyor. `renderWithProviders` bunu sağlar; provider'ın kendi
+  // ilk yükleme fetch'leri bu testin `fetch` stub'ı yoksa/varsa da
+  // sessizce başarısız/farklı-şekilli döner — hiçbiri bu bileşenin
+  // `assets`/`scans` state'ini OKUMADIĞI için zararsızdır.
+  return renderWithProviders(<AssetDetails asset={asset} onClose={onClose} />);
 }
 
 function openTab(name: string) {
@@ -174,6 +176,37 @@ describe("AssetDetails", () => {
 
     expect(screen.getByText(tr.severity.critical)).toBeInTheDocument();
     expect(screen.getByText(/yanıt vermiyor/)).toBeInTheDocument();
+  });
+
+  it("shows a real SNMP device_unreachable alert once monitoring data is wired in (Faz 70)", async () => {
+    mockAssetsAndScans([ASSET], [], undefined, [], [], {
+      latest_batch: {
+        started_at: "2026-09-11T00:00:00Z",
+        completed_at: "2026-09-11T00:00:01Z",
+        duration_ms: 10,
+        total: 1,
+        polled: 1,
+        not_configured: 0,
+        results: [
+          {
+            asset_id: ASSET.id,
+            polled_at: "2026-09-11T00:00:00Z",
+            status: "unreachable",
+            system: null,
+            interfaces: [],
+            error: "timed out",
+            duration_ms: 2000,
+          },
+        ],
+      },
+      poll_log: [],
+      bandwidth_history: [],
+    });
+
+    renderAssetDetails(ASSET, vi.fn());
+    openTab(d.tabs.alerts);
+
+    expect(await screen.findByText(tr.severity.critical)).toBeInTheDocument();
   });
 
   it("links to the Topology page filtered to this device's IP", () => {
@@ -322,5 +355,39 @@ describe("AssetDetails", () => {
 
     await waitFor(() => expect(screen.getByText("Core Switch SNMP")).toBeInTheDocument());
     expect(screen.queryByText(/gercek-|actual-secret/i)).not.toBeInTheDocument();
+  });
+
+  // --- Faz 61: firewall/router için PAM CLI/SSH kısayolu ---
+
+  it("opens the PAM zero-knowledge SSH page in a new tab for a firewall device", () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderAssetDetails(ASSET, vi.fn()); // device_type: "firewall"
+
+    fireEvent.click(screen.getByRole("button", { name: d.pamCliSsh }));
+
+    expect(openSpy).toHaveBeenCalledWith(`/pam/ssh/${ASSET.id}`, "_blank", "noopener,noreferrer");
+  });
+
+  it("does not show the PAM CLI/SSH button for a non-firewall/router device", () => {
+    renderAssetDetails(NULL_ASSET, vi.fn()); // device_type: "unknown"
+
+    expect(screen.queryByRole("button", { name: d.pamCliSsh })).not.toBeInTheDocument();
+  });
+
+  // --- Faz 76: firewall/router için PAM Web Konsolu kısayolu ---
+
+  it("opens the PAM web console page in a new tab for a firewall device", () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderAssetDetails(ASSET, vi.fn());
+
+    fireEvent.click(screen.getByRole("button", { name: d.pamWebConsole }));
+
+    expect(openSpy).toHaveBeenCalledWith(`/pam/web/${ASSET.id}`, "_blank", "noopener,noreferrer");
+  });
+
+  it("does not show the PAM Web Console button for a non-firewall/router device", () => {
+    renderAssetDetails(NULL_ASSET, vi.fn());
+
+    expect(screen.queryByRole("button", { name: d.pamWebConsole })).not.toBeInTheDocument();
   });
 });

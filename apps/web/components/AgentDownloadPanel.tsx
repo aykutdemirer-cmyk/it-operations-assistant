@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { fetchWindowsAgentDownloadInfo, windowsAgentDownloadUrl, type WindowsAgentDownloadInfo } from "@/lib/api";
+import { fetchWindowsServiceDownloadInfo, windowsServiceDownloadUrl, type WindowsAgentDownloadInfo } from "@/lib/api";
 import { useLocale } from "@/lib/i18n/LocaleProvider";
 import styles from "./AgentDownloadPanel.module.css";
 
@@ -14,54 +14,58 @@ function formatFileSize(bytes: number | null): string {
   return `${mb.toFixed(1)} MB`;
 }
 
+/** Kullanıcı isteğiyle — düz CLI EXE indirmesi (yalnızca `agent start`,
+ * servis kaydı YOK) kaldırıldı; KALICI Windows servisi olarak kuran
+ * paket (Faz 40) zaten aynı EXE'yi + kurulum script'lerini içeriyor ve
+ * tek başlı EXE'nin kapsadığı her senaryoyu karşılıyor. Backend'deki
+ * `GET /api/agents/download/windows` (düz EXE) endpoint'i KALDIRILMADI
+ * — yalnızca bu panelden bağlantısı kaldırıldı, ileride geri
+ * eklenebilir. */
 export function AgentDownloadPanel() {
   const { t } = useLocale();
   const d = t.settings.download;
 
-  const [status, setStatus] = useState<LoadStatus>("loading");
-  const [info, setInfo] = useState<WindowsAgentDownloadInfo | null>(null);
+  const [serviceStatus, setServiceStatus] = useState<LoadStatus>("loading");
+  const [serviceInfo, setServiceInfo] = useState<WindowsAgentDownloadInfo | null>(null);
 
   useEffect(() => {
-    fetchWindowsAgentDownloadInfo()
+    fetchWindowsServiceDownloadInfo()
       .then((data) => {
-        setInfo(data);
-        setStatus("done");
+        setServiceInfo(data);
+        setServiceStatus("done");
       })
-      .catch(() => setStatus("error"));
+      .catch(() => setServiceStatus("error"));
   }, []);
 
   return (
     <div className={styles.wrap}>
-      <h4 className={styles.title}>{d.title}</h4>
-      <p className={styles.description}>{d.description}</p>
+      <h4 className={styles.title}>{d.serviceTitle}</h4>
+      <p className={styles.description}>{d.serviceDescription}</p>
 
-      {status === "loading" && <p className={styles.status}>{t.common.loading}</p>}
-      {status === "error" && <p className={styles.error}>{d.loadError}</p>}
+      {serviceStatus === "loading" && <p className={styles.status}>{t.common.loading}</p>}
+      {serviceStatus === "error" && <p className={styles.error}>{d.loadError}</p>}
 
-      {status === "done" && info && !info.available && (
-        <div className={styles.notBuilt}>
-          <p className={styles.status}>{d.notBuilt}</p>
-          <p className={styles.hint}>{d.notBuiltHint}</p>
-        </div>
-      )}
-
-      {status === "done" && info && info.available && (
+      {serviceStatus === "done" && serviceInfo && serviceInfo.available && (
         <div className={styles.available}>
-          <a className={styles.downloadButton} href={windowsAgentDownloadUrl()}>
-            {d.windowsButton}
+          <a className={styles.downloadButton} href={windowsServiceDownloadUrl()}>
+            {d.serviceButton}
           </a>
           <dl className={styles.meta}>
             <div className={styles.metaField}>
               <dt>{d.version}</dt>
-              <dd>{info.version}</dd>
+              <dd>{serviceInfo.version}</dd>
             </div>
             <div className={styles.metaField}>
               <dt>{d.fileSize}</dt>
-              <dd>{formatFileSize(info.size_bytes)}</dd>
+              <dd>{formatFileSize(serviceInfo.size_bytes)}</dd>
             </div>
           </dl>
-          <p className={styles.hint}>{d.noPythonRequired}</p>
+          <p className={styles.hint}>{d.serviceHint}</p>
         </div>
+      )}
+
+      {serviceStatus === "done" && serviceInfo && !serviceInfo.available && (
+        <p className={styles.hint}>{d.serviceNotBuilt}</p>
       )}
     </div>
   );

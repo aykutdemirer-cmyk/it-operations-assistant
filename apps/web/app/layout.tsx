@@ -1,9 +1,16 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+// Faz 59 — sürüklenebilir dashboard grid'i (react-grid-layout) için
+// zorunlu global stiller. Kütüphane MIT lisanslı; tek bağımlılıkları
+// react-draggable + react-resizable (ikisi de MIT), yeni bir güvenlik
+// açığı EKLEMİYOR (bkz. `docs/roadmap.md` Faz 59).
+import "react-grid-layout/css/styles.css";
+import "react-resizable/css/styles.css";
 
 import { Sidebar } from "@/components/Sidebar";
 import { TopHeader } from "@/components/TopHeader";
+import { AuthProvider } from "@/lib/auth/AuthProvider";
 import { DashboardDataProvider } from "@/lib/DashboardDataProvider";
 import { LocaleProvider } from "@/lib/i18n/LocaleProvider";
 import { ThemeProvider } from "@/lib/theme/ThemeProvider";
@@ -30,15 +37,17 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body>
         <LocaleProvider>
           <ThemeProvider>
-            <DashboardDataProvider>
-              <div className={styles.shell}>
-                <Sidebar />
-                <div className={styles.content}>
-                  <TopHeader />
-                  {children}
+            <AuthProvider>
+              <DashboardDataProvider>
+                <div className={styles.shell}>
+                  <Sidebar />
+                  <div className={styles.content}>
+                    <TopHeader />
+                    {children}
+                  </div>
                 </div>
-              </div>
-            </DashboardDataProvider>
+              </DashboardDataProvider>
+            </AuthProvider>
           </ThemeProvider>
         </LocaleProvider>
       </body>

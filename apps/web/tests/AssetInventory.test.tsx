@@ -1,12 +1,19 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+let mockSearchParams = new URLSearchParams();
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => mockSearchParams,
+}));
+
 import { AssetInventory } from "@/components/AssetInventory";
 import { tr } from "@/lib/i18n/translations";
 import { mockAssetsAndScans, renderWithDashboardData } from "./testUtils";
 
 afterEach(() => {
   vi.restoreAllMocks();
+  mockSearchParams = new URLSearchParams();
 });
 
 const SAMPLE_ASSET = {
@@ -335,5 +342,59 @@ describe("AssetInventory", () => {
     );
 
     expect(screen.queryByLabelText(tr.assetDetails.ariaLabel)).not.toBeInTheDocument();
+  });
+
+  // --- Dashboard KPI kartlarından tıklanarak gelen hızlı filtreler ---
+
+  const HIGH_RISK_ASSET = {
+    ...SAMPLE_ASSET,
+    id: "33333333-3333-3333-3333-333333333333",
+    ip_address: "10.0.5.3",
+    hostname: "legacy-server.example.local",
+    open_ports: [{ port: 445, status: "open", latency_ms: 3.0 }],
+  };
+
+  it("pre-applies the status filter from ?status= (Dashboard KPI deep link)", async () => {
+    mockSearchParams = new URLSearchParams({ status: "down" });
+    mockFetchAssetsOnce([SAMPLE_ASSET, NULL_FIELD_ASSET]);
+
+    renderWithDashboardData(<AssetInventory />);
+
+    await screen.findByText("10.0.5.2");
+    expect(screen.queryByText("10.0.5.1")).not.toBeInTheDocument();
+  });
+
+  it("pre-applies the device type filter from ?deviceType= (Dashboard 'Yönetilmeyen Cihazlar' deep link)", async () => {
+    mockSearchParams = new URLSearchParams({ deviceType: "unknown" });
+    mockFetchAssetsOnce([SAMPLE_ASSET, NULL_FIELD_ASSET]);
+
+    renderWithDashboardData(<AssetInventory />);
+
+    await screen.findByText("10.0.5.2");
+    expect(screen.queryByText("10.0.5.1")).not.toBeInTheDocument();
+  });
+
+  it("pre-applies the high-risk-only filter from ?highRisk=1 (Dashboard 'Yüksek Riskli Portlar' deep link)", async () => {
+    mockSearchParams = new URLSearchParams({ highRisk: "1" });
+    mockFetchAssetsOnce([SAMPLE_ASSET, HIGH_RISK_ASSET]);
+
+    renderWithDashboardData(<AssetInventory />);
+
+    await screen.findByText("10.0.5.3");
+    expect(screen.queryByText("10.0.5.1")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: tr.assets.highRiskOnly })).toBeChecked();
+  });
+
+  it("filters assets by the high-risk-only checkbox interactively", async () => {
+    mockFetchAssetsOnce([SAMPLE_ASSET, HIGH_RISK_ASSET]);
+
+    renderWithDashboardData(<AssetInventory />);
+    await screen.findByText("10.0.5.1");
+    await screen.findByText("10.0.5.3");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: tr.assets.highRiskOnly }));
+
+    expect(screen.queryByText("10.0.5.1")).not.toBeInTheDocument();
+    expect(screen.getByText("10.0.5.3")).toBeInTheDocument();
   });
 });

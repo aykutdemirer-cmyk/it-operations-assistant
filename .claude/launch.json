@@ -10,7 +10,7 @@
     {
       "name": "api",
       "runtimeExecutable": "apps/api/.venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--app-dir", "apps/api", "--host", "127.0.0.1", "--port", "8000"],
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--app-dir", "apps/api", "--host", "127.0.0.1", "--port", "8000", "--ws-ping-interval", "15", "--ws-ping-timeout", "15"],
       "port": 8000
     }
   ]

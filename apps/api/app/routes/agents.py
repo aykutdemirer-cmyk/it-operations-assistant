@@ -6,7 +6,12 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from app.agents import service
-from app.agents.download import ArtifactNotAvailableError, resolve_windows_agent_artifact
+from app.agents.download import (
+    ArtifactNotAvailableError,
+    build_windows_service_bundle_zip,
+    resolve_windows_agent_artifact,
+    resolve_windows_service_artifact,
+)
 from app.agents.rdp import NoConnectableAddressError, build_rdp_file
 from app.agents.wol import InvalidMacAddressError, send_magic_packet
 from app.agents.exceptions import (
@@ -18,18 +23,22 @@ from app.agents.exceptions import (
 )
 from app.agents.matching import AssetMatchCandidate
 from app.agents.models import (
+    AgentDeleteResult,
     AgentDetail,
     AgentHeartbeatRequest,
     AgentInventoryRequest,
     AgentRegistrationRequest,
     AgentRegistrationResponse,
+    AgentRetentionPolicy,
+    AgentRetentionPolicyUpdate,
     AgentSummary,
     AgentTelemetryRequest,
+    ArchivedAgentSummary,
     EnrollmentCodeResponse,
     EnrollmentCodeSummary,
     WindowsAgentDownloadInfo,
 )
-from app.db.agents import ensure_schema, get_connection
+from app.db.agents import get_connection
 
 router = APIRouter(prefix="/api/agents")
 
@@ -37,12 +46,14 @@ logger = logging.getLogger(__name__)
 
 
 async def _connect():
+    # Şema artık burada HER İSTEKTE değil, uygulama başlangıcında tek
+    # seferlik kurulur (bkz. `app/main.py::_ensure_schema_once` —
+    # gerçek bir eşzamanlı-yük deadlock'ının düzeltmesi).
     try:
         conn = await get_connection()
     except OSError as exc:
         logger.warning("PostgreSQL erişilemedi (agents)")
         raise HTTPException(status_code=503, detail={"database": "unreachable"}) from exc
-    await ensure_schema(conn)
     return conn
 
 
@@ -134,6 +145,49 @@ async def download_windows_agent() -> FileResponse:
     )
 
 
+@router.get("/download/windows-service/info", response_model=WindowsAgentDownloadInfo)
+async def get_windows_service_download_info() -> WindowsAgentDownloadInfo:
+    """`GET /api/agents/download/windows/info` ile AYNI sözleşme, ayrı
+    artifact — Windows Servisi paketi (bkz. `app/agents/download.py`).
+    Henüz build edilmemişse `available=False` (dürüstçe)."""
+    try:
+        artifact = resolve_windows_service_artifact()
+    except ArtifactNotAvailableError:
+        return WindowsAgentDownloadInfo(available=False)
+    return WindowsAgentDownloadInfo(
+        available=True,
+        version=artifact.version,
+        filename=artifact.filename,
+        size_bytes=artifact.size_bytes,
+        built_at=artifact.built_at,
+    )
+
+
+@router.get("/download/windows-service")
+async def download_windows_service_bundle() -> Response:
+    """Başka bir Windows bilgisayara kurmak için: önceden build
+    edilmiş `itops-agent.exe` + `install_windows_service.ps1` +
+    `uninstall_windows_service.ps1` + kısa bir README'yi TEK bir ZIP
+    olarak paketler (bkz. `app/agents/download.py::
+    build_windows_service_bundle_zip` — bellekte oluşturulur, diske
+    hiç yazılmaz). Bu endpoint de HİÇBİR ZAMAN PyInstaller çalıştırmaz
+    — yalnızca önceden build edilmiş dosyaları okur (`download_windows_
+    agent` ile AYNI ilke). Artifact yoksa dürüst bir `404` döner."""
+    try:
+        artifact = resolve_windows_service_artifact()
+        zip_bytes = build_windows_service_bundle_zip(artifact)
+    except ArtifactNotAvailableError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Windows Servisi paketi henüz build edilmemiş. Önce packaging/windows/build_service.ps1 çalıştırılmalı.",
+        ) from exc
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="itops-agent-windows-service.zip"'},
+    )
+
+
 async def _authenticate(conn, authorization: str | None) -> dict:
     try:
         return await service.authenticate(conn, authorization)
@@ -205,6 +259,39 @@ async def list_agents_route() -> list[AgentSummary]:
     conn = await _connect()
     try:
         return await service.list_agent_summaries(conn)
+    finally:
+        await conn.close()
+
+
+@router.get("/archived", response_model=list[ArchivedAgentSummary])
+async def list_archived_agents_route() -> list[ArchivedAgentSummary]:
+    """Silinen/Arşivlenen Agent'lar ekranı — bkz. `app/db/agents.py::
+    archive_agent` docstring'i (kalıcı SİLME değil, soft-delete)."""
+    conn = await _connect()
+    try:
+        return await service.list_archived_agents(conn)
+    finally:
+        await conn.close()
+
+
+@router.get("/retention-policy", response_model=AgentRetentionPolicy)
+async def get_retention_policy_route() -> AgentRetentionPolicy:
+    conn = await _connect()
+    try:
+        return await service.get_retention_policy(conn)
+    finally:
+        await conn.close()
+
+
+@router.put("/retention-policy", response_model=AgentRetentionPolicy)
+async def set_retention_policy_route(request: AgentRetentionPolicyUpdate) -> AgentRetentionPolicy:
+    """`enabled=false` (varsayılan) iken arka plan worker'ı hiçbir
+    agent'ı arşivlemez — bkz. `app/agents/scheduler.py`."""
+    conn = await _connect()
+    try:
+        return await service.set_retention_policy(
+            conn, enabled=request.enabled, retention_days=request.retention_days
+        )
     finally:
         await conn.close()
 
@@ -308,5 +395,46 @@ async def confirm_asset_match(
         return await service.confirm_agent_asset_match(conn, agent_id, request.asset_id)
     except AgentNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    finally:
+        await conn.close()
+
+
+@router.delete("/{agent_id}", response_model=AgentDeleteResult)
+async def delete_agent_route(agent_id: UUID, send_uninstall_command: bool = False) -> AgentDeleteResult:
+    """Manuel silme — Agent'ı ARŞİVLER (bkz. `app/db/agents.py::
+    archive_agent` docstring'i, kalıcı SİLME değil). `send_uninstall_
+    command=true` ise arşivlemeden ÖNCE agent'a `uninstall_service`
+    komutu kuyruğa alınır (bkz. `app/agents/service.py::delete_agent`
+    — sıra önemli, arşivleme token'ı iptal eder)."""
+    conn = await _connect()
+    try:
+        return await service.delete_agent(conn, agent_id, send_uninstall_command=send_uninstall_command)
+    except AgentNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Agent bulunamadı") from exc
+    finally:
+        await conn.close()
+
+
+@router.post("/{agent_id}/restore", response_model=AgentSummary)
+async def restore_agent_route(agent_id: UUID) -> AgentSummary:
+    conn = await _connect()
+    try:
+        return await service.restore_agent(conn, agent_id)
+    except AgentNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Agent bulunamadı") from exc
+    finally:
+        await conn.close()
+
+
+@router.post("/{agent_id}/update")
+async def trigger_agent_update_route(agent_id: UUID) -> dict:
+    """Uzaktan Sürüm Güncelleme — agent'a `update_self` komutu kuyruğa
+    alır (bkz. `app/agents/service.py::trigger_agent_update`)."""
+    conn = await _connect()
+    try:
+        command_id = await service.trigger_agent_update(conn, agent_id)
+        return {"status": "queued", "command_id": str(command_id)}
+    except AgentNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Agent bulunamadı") from exc
     finally:
         await conn.close()

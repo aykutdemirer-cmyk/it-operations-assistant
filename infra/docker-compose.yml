@@ -12,5 +12,47 @@ services:
     volumes:
       - itops_pgdata:/var/lib/postgresql/data
 
+  # Faz 48 — Apache Guacamole Daemon. Backend (`apps/api/app/pam/
+  # guacd.py`) TCP üzerinden buraya bağlanıp gerçek RDP el sıkışmasını
+  # (kimlik bilgisi enjeksiyonu dahil) yapar; guacd'nin KENDİSİ hiçbir
+  # kimlik bilgisini kalıcı olarak saklamaz, yalnızca RDP protokolünü
+  # HTML5/WebSocket'e çevirir. Resmi Apache imajı (Apache-2.0) — ayrı
+  # bir Guacamole WEB UYGULAMASI (guacamole/guacamole imajı, Tomcat
+  # tabanlı MySQL/PostgreSQL şeması gerektirir) KASITLI olarak
+  # EKLENMEDİ: bu proje kendi `users`/`pam_access_rules` yetkilendirme
+  # modelini kullanıyor (bkz. Faz 46/47), guacd'yi DOĞRUDAN (guacamole-
+  # client webapp'ı olmadan) konuşuyor.
+  #
+  # ÇALIŞTIRMAK İÇİN bu makinede Docker/WSL2 GEREKİR — bu ortamda
+  # (Windows Server 2025, container runtime kurulu değil) henüz
+  # ÇALIŞTIRILAMADI, bkz. docs/roadmap.md Faz 48 notu.
+  guacd:
+    image: guacamole/guacd:1.5.5
+    container_name: itops-guacd
+    restart: unless-stopped
+    ports:
+      - "4822:4822"
+    # Faz 50 — Oturum Kaydı (Session Recording). guacd RDP oturumlarını
+    # `.guac` protokol dosyası olarak KENDİSİ yazar (Python backend'in
+    # bunu yazması değil, yalnızca `connect` instruction'ında `recording-
+    # path`/`recording-name` parametreleri VERİLİR — bkz. `apps/api/
+    # app/pam/guacd.py::recording_config`). Backend'in kayıt dosyasını
+    # `GET /api/pam/audit/{id}/recording`'de sunabilmesi için AYNI
+    # dizini kendi tarafından da (`PAM_RECORDING_HOST_DIR`, `.env`) görmesi
+    # gerekir — bu bind mount ikisinin de AYNI dosyaları görmesini sağlar.
+    # SOL taraf (`../apps/api/logs/recordings`) `apps/api/.env`'deki
+    # `PAM_RECORDING_HOST_DIR=./logs/recordings` (backend `apps/api`
+    # içinden çalıştırıldığı için göreli) ile FİZİKSEL olarak AYNI
+    # klasörü işaret eder; SAĞ taraf `GUACD_RECORDING_PATH` ile
+    # BİREBİR eşleşir.
+    volumes:
+      - ../apps/api/logs/recordings:/var/log/pam/recordings
+      # Faz 74 — Sürücü Yönlendirme (Dosya Transferi). Her RDP oturumu
+      # kendi `{GUACD_DRIVE_PATH}/{session_id}` alt dizinini kullanır
+      # (bkz. `apps/api/app/pam/guacd.py::drive_config`) — recordings
+      # mount'uyla AYNI desen, ama backend'in bu dizini KENDİ tarafından
+      # AYRICA görmesine gerek yok (yalnızca guacd/RDP erişiyor).
+      - ../apps/api/logs/pam-drives:/var/pam/drives
+
 volumes:
   itops_pgdata:

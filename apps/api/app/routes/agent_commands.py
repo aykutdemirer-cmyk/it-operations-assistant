@@ -25,7 +25,7 @@ from app.agents.command_models import (
 )
 from app.agents.exceptions import AgentAuthenticationError, AgentNotFoundError
 from app.db import agent_commands as commands_repo
-from app.db.agents import ensure_schema, get_connection
+from app.db.agents import get_connection
 
 router = APIRouter(prefix="/api/agents")
 
@@ -38,8 +38,8 @@ async def _connect():
     except OSError as exc:
         logger.warning("PostgreSQL erişilemedi (agent-commands)")
         raise HTTPException(status_code=503, detail={"database": "unreachable"}) from exc
-    await ensure_schema(conn)
-    await commands_repo.ensure_schema(conn)
+    # Şema artık uygulama başlangıcında tek seferlik kurulur (bkz.
+    # `app/main.py::_ensure_schema_once`).
     return conn
 
 

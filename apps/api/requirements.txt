@@ -7,6 +7,10 @@ asyncpg==0.31.0
 # kimlik bilgisi (username/password) HİÇBİR ZAMAN diske/DB'ye yazılmaz,
 # yalnızca bellekte, bağlantı süresince tutulur (bkz. app/agents/ssh_proxy.py).
 asyncssh==2.24.0
+# bcrypt — Faz 46 (PAM/RBAC). Apache-2.0 lisans. Parola hash'leme
+# (`app/auth/security.py`) — düz metin parola HİÇBİR ZAMAN DB'ye
+# yazılmaz, yalnızca bcrypt hash'i (bkz. `users.password_hash`).
+bcrypt==5.0.0
 certifi==2026.7.22
 cffi==2.1.1
 click==8.4.2
@@ -21,6 +25,11 @@ httpx==0.28.1
 httpx2==2.12.0
 idna==3.19
 iniconfig==2.3.0
+# ldap3 — Faz 49 (LDAP/Active Directory Entegrasyonu). LGPL-3.0 lisans.
+# `python-ldap` YERİNE tercih edildi — o OpenLDAP C başlıklarına karşı
+# DERLENMESİ gerekiyor (bu Windows Server ortamında ek bir derleme
+# zinciri gerektirirdi), `ldap3` saf Python (bkz. app/services/ldap.py).
+ldap3==2.9.1
 packaging==26.3
 pluggy==1.6.0
 pyasn1==0.6.4
@@ -31,6 +40,10 @@ Pygments==2.21.0
 pysnmp==7.1.29
 pytest==9.1.1
 python-dotenv==1.2.3
+# PyJWT — Faz 46 (PAM/RBAC). MIT lisans. `POST /api/auth/login`'in
+# döndürdüğü kısa ömürlü oturum token'ının (`app/auth/security.py`)
+# imzalanması/doğrulanması — anahtar `.env`'deki `JWT_SECRET_KEY`.
+PyJWT==2.13.0
 PyYAML==6.0.3
 starlette==1.6.0
 truststore==0.10.4

@@ -1,0 +1,198 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 16px;
+}
+
+.dialog {
+  width: 100%;
+  max-width: 960px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background-color: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.closeButton {
+  padding: 4px 10px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.closeButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 320px;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #020617;
+  border-radius: var(--radius-md);
+}
+
+.stage :global(canvas) {
+  max-width: 100%;
+}
+
+.canvasInner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.statusOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 0.85rem;
+  background-color: rgba(2, 6, 23, 0.85);
+}
+
+.errorText {
+  color: var(--status-down);
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.seekRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.seekBarWrap {
+  position: relative;
+  flex: 1;
+}
+
+.seekBar {
+  width: 100%;
+}
+
+.markerTrack {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -6px;
+  height: 6px;
+  pointer-events: none;
+}
+
+/* Faz 75 — İnaktif Süre Atlama bandı. */
+.idleGapBand {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background-color: var(--text-muted);
+  opacity: 0.35;
+  border-radius: 2px;
+}
+
+.markerTick {
+  position: absolute;
+  transform: translateX(-50%);
+  width: 3px;
+  height: 6px;
+  padding: 0;
+  background-color: var(--accent);
+  border: none;
+  border-radius: 1px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.timeLabel {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.buttonRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.playButton {
+  padding: 6px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-contrast, #fff);
+  background-color: var(--accent);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.speedGroup {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.speedButton {
+  padding: 5px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background-color: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.speedButtonActive {
+  color: var(--accent-contrast, #fff);
+  background-color: var(--accent);
+  border-color: var(--accent);
+}

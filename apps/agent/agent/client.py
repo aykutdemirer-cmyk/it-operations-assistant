@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import ssl
 import urllib.error
 import urllib.request
@@ -85,15 +86,16 @@ class BackendClient:
                 return HttpResponse(status=resp.status, body=body)
         except urllib.error.HTTPError as exc:
             body = _parse_json(exc.read())
+            detail = body.get("detail", "")
             if exc.code in (401, 403):
-                raise BackendAuthenticationError(body.get("detail", "Kimlik doğrulama başarısız")) from exc
+                raise BackendAuthenticationError(f"HTTP {exc.code}: {detail or 'Kimlik doğrulama başarısız'}") from exc
             if exc.code == 422:
-                raise BackendValidationError(body.get("detail", "Geçersiz payload")) from exc
+                raise BackendValidationError(f"HTTP 422: {detail or 'Geçersiz payload'}") from exc
             if exc.code >= 500:
-                raise BackendServerError(f"Backend sunucu hatası: {exc.code}") from exc
+                raise BackendServerError(f"HTTP {exc.code}: Backend sunucu hatası") from exc
             return HttpResponse(status=exc.code, body=body)
         except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
-            raise BackendUnavailableError(f"Backend'e ulaşılamadı: {exc}") from exc
+            raise BackendUnavailableError(f"{_categorize_connection_error(exc)}: {exc}") from exc
 
     def register(self, payload: dict) -> dict:
         response = self._request("POST", "/api/agents/register", json_body=payload)
@@ -109,11 +111,15 @@ class BackendClient:
             )
         return response.body
 
-    def heartbeat(self, token: str, payload: dict) -> dict:
-        response = self._request(
+    def heartbeat(self, token: str, payload: dict) -> HttpResponse:
+        """Faz — Debug/Logging iyileştirmesi: çağıran taraf (`main.py::
+        AgentRuntime._send_heartbeat`) artık HTTP durum kodunu ayrıca
+        loglayabilsin diye tam `HttpResponse` (status + body) döner —
+        önceden yalnızca `body` (dict) dönüyordu, status kodu sessizce
+        atılıyordu."""
+        return self._request(
             "POST", "/api/agents/heartbeat", json_body=payload, headers=build_auth_header(token)
         )
-        return response.body
 
     def send_telemetry(self, token: str, agent_id: str, payload: dict) -> None:
         self._request(
@@ -123,6 +129,14 @@ class BackendClient:
     def send_inventory(self, token: str, agent_id: str, payload: dict) -> None:
         self._request(
             "POST", f"/api/agents/{agent_id}/inventory", json_body=payload, headers=build_auth_header(token)
+        )
+
+    def send_windows_updates(self, token: str, agent_id: str, payload: dict) -> None:
+        """`agent/collectors/windows_updates.py::scan_pending_updates`
+        sonucunu gönderir — `telemetry`/`inventory` ile AYNI Bearer-auth
+        deseni (bkz. `apps/api/app/routes/agent_updates.py`)."""
+        self._request(
+            "POST", f"/api/agents/{agent_id}/updates", json_body=payload, headers=build_auth_header(token)
         )
 
     def get_pending_commands(self, token: str, agent_id: str) -> list[dict]:
@@ -151,6 +165,26 @@ class BackendClient:
         asıl "authentication valid" kontrolü ayrı bir heartbeat denemesiyle
         yapılır)."""
         return self._request("GET", "/api/health")
+
+
+def _categorize_connection_error(exc: Exception) -> str:
+    """`agent.log`'a yazılan mesaja bağlantı hatasının TÜRÜNÜ (Connection
+    Refused / Timeout / DNS çözümlenemedi / diğer) açıkça ekler — ham
+    `str(exc)` her zaman bu kadar okunur değil (ör. Windows'ta
+    `ConnectionRefusedError`'ın metni yerelleştirilmiş/kriptik
+    olabilir). Yalnızca ETİKETLEME amaçlı, orijinal `exc` mesajı HER
+    ZAMAN ayrıca korunur (bilgi kaybı yok)."""
+    if isinstance(exc, TimeoutError) or isinstance(exc, socket.timeout):
+        return "Zaman aşımı (Timeout)"
+    if isinstance(exc, ConnectionRefusedError):
+        return "Bağlantı reddedildi (Connection Refused)"
+    if isinstance(exc, ConnectionError):
+        return "Bağlantı hatası (Connection Error)"
+    if isinstance(exc, urllib.error.URLError) and isinstance(exc.reason, socket.gaierror):
+        return "DNS çözümlenemedi (Name Resolution Failed)"
+    if isinstance(exc, urllib.error.URLError):
+        return "Bağlantı kurulamadı (URL Error)"
+    return "Bilinmeyen bağlantı hatası"
 
 
 def _parse_json(raw: bytes) -> dict:

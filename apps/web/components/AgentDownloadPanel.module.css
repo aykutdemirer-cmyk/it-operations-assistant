@@ -77,3 +77,18 @@
   color: var(--text-muted);
   font-style: italic;
 }
+
+.serviceSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  margin-top: 4px;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.serviceTitle {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}

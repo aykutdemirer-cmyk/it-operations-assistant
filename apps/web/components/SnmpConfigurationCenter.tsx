@@ -1,22 +1,26 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 import {
   ApiError,
   createSnmpProfile,
   deleteSnmpProfile,
+  fetchAssetsForSnmpProfile,
   fetchSnmpProfiles,
   testSnmpProfileConnection,
   updateSnmpProfile,
   type SnmpAuthProtocol,
   type SnmpPrivProtocol,
   type SnmpProfile,
+  type SnmpProfileAssetSummary,
   type SnmpProfileVersion,
   type SnmpProfileWrite,
   type SnmpTestConnectionResult,
 } from "@/lib/api";
 import { useLocale } from "@/lib/i18n/LocaleProvider";
+import { ToastStack, useToasts } from "./Toast";
 import styles from "./SnmpConfigurationCenter.module.css";
 
 type FetchStatus = "loading" | "done" | "error";
@@ -111,6 +115,11 @@ export function SnmpConfigurationCenter() {
 
   const [profiles, setProfiles] = useState<SnmpProfile[]>([]);
   const [status, setStatus] = useState<FetchStatus>("loading");
+  // Faz: "Atanmış Cihazlar" hücresi artık yalnızca sayı DEĞİL — hangi
+  // asset(ler) olduğunu gösterip Topoloji'ye tıklanabilir link veriyor
+  // (kullanıcı isteği). `fetchAssetsForSnmpProfile` zaten Faz 29.5'ten
+  // beri backend'de/api.ts'de vardı, yalnızca UI'ya hiç bağlanmamıştı.
+  const [assignedAssets, setAssignedAssets] = useState<Record<string, SnmpProfileAssetSummary[]>>({});
   const [editingId, setEditingId] = useState<string | "new" | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
@@ -119,6 +128,7 @@ export function SnmpConfigurationCenter() {
   const [testResults, setTestResults] = useState<Record<string, SnmpTestConnectionResult>>({});
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<{ id: string; message: string } | null>(null);
+  const { toasts, push: pushToast, dismiss: dismissToast } = useToasts();
 
   function load() {
     // `status` bilerek "loading"a geri alınmıyor — bir create/edit/
@@ -130,6 +140,17 @@ export function SnmpConfigurationCenter() {
       .then((data) => {
         setProfiles(data);
         setStatus("done");
+        // Yalnızca gerçekten atanmış cihazı olan profiller için — 0
+        // atamalı bir profil için boş bir istek atılmaz.
+        for (const profile of data) {
+          if (profile.assigned_asset_count > 0) {
+            fetchAssetsForSnmpProfile(profile.id)
+              .then((assets) => setAssignedAssets((prev) => ({ ...prev, [profile.id]: assets })))
+              .catch(() => {
+                /* sessizce yut — hücre sayıya düşer */
+              });
+          }
+        }
       })
       .catch(() => setStatus("error"));
   }
@@ -193,8 +214,16 @@ export function SnmpConfigurationCenter() {
     try {
       const result = await testSnmpProfileConnection(id);
       setTestResults((prev) => ({ ...prev, [id]: result }));
-    } catch {
-      // sessizce yut — ağ/backend hatası zaten Genel Durum'da görünür
+      // Faz: timeout/community/unreachable ayrımını kısa tablo
+      // etiketinden daha net görebilmek için backend'in ayrıntılı
+      // `message`'ını (bkz. `profile_service.py::test_connection`)
+      // toast olarak da göster.
+      pushToast(
+        result.status === "connected" ? "success" : "error",
+        `${st.testResultLabels[result.status]}: ${result.message}`,
+      );
+    } catch (err) {
+      pushToast("error", err instanceof Error ? err.message : st.saveError);
     } finally {
       setTestingId(null);
     }
@@ -202,6 +231,7 @@ export function SnmpConfigurationCenter() {
 
   return (
     <section className={styles.card}>
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
       <div className={styles.header}>
         <div>
           <h3 className={styles.sectionTitle}>{st.sectionTitle}</h3>
@@ -249,6 +279,7 @@ export function SnmpConfigurationCenter() {
                           </span>
                           {testResult && (
                             <div className={styles.testResult}>
+                              <span className={styles.testResultPrefix}>{st.lastTestResult}</span>
                               <span
                                 className={`${styles.dot} ${testStatusDotClass(testResult.status, styles)}`}
                               />
@@ -259,7 +290,26 @@ export function SnmpConfigurationCenter() {
                             </div>
                           )}
                         </td>
-                        <td>{st.assignedDevicesCount(profile.assigned_asset_count)}</td>
+                        <td>
+                          {profile.assigned_asset_count === 0 ? (
+                            st.assignedDevicesCount(0)
+                          ) : assignedAssets[profile.id] ? (
+                            <div className={styles.deviceList}>
+                              {assignedAssets[profile.id].map((asset) => (
+                                <Link
+                                  key={asset.id}
+                                  className={styles.deviceLink}
+                                  href={`/topology?ip=${encodeURIComponent(asset.ip_address)}`}
+                                  title={t.common.viewInTopology}
+                                >
+                                  {asset.hostname || asset.ip_address}
+                                </Link>
+                              ))}
+                            </div>
+                          ) : (
+                            st.assignedDevicesCount(profile.assigned_asset_count)
+                          )}
+                        </td>
                         <td className={styles.actions}>
                           <button type="button" className={styles.linkButton} onClick={() => openEdit(profile)}>
                             {t.common.edit}

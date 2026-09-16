@@ -73,3 +73,110 @@ def test_version_is_a_plausible_semver_string():
     parts = __version__.split(".")
     assert len(parts) == 3
     assert all(part.isdigit() for part in parts)
+
+
+# --- Windows Servisi build/kurulum otomasyonu ---
+
+_AGENT_ROOT = Path(__file__).resolve().parents[1]
+_SCRIPTS_DIR = _AGENT_ROOT / "scripts"
+
+
+def test_service_spec_file_exists():
+    assert (_PACKAGING_DIR / "IT-Operations-Agent-Service.spec").is_file()
+
+
+def test_service_spec_references_winservice_entrypoint():
+    content = (_PACKAGING_DIR / "IT-Operations-Agent-Service.spec").read_text(encoding="utf-8")
+    assert "winservice.py" in content
+
+
+def test_service_spec_uses_a_stable_exe_name_not_versioned():
+    """Servis `binPath`'i her build'de AYNI kalmalı — CLI EXE'nin
+    aksine (`IT-Operations-Agent-<version>.exe`) versiyonlu bir ad
+    KULLANILMAMALI (bkz. .spec dosyasının docstring'i)."""
+    content = (_PACKAGING_DIR / "IT-Operations-Agent-Service.spec").read_text(encoding="utf-8")
+    assert 'name="itops-agent"' in content
+    assert f'"{__version__}"' not in content
+
+
+def test_build_service_script_exists():
+    assert (_PACKAGING_DIR / "build_service.ps1").is_file()
+
+
+def test_windows_install_uninstall_scripts_exist():
+    assert (_SCRIPTS_DIR / "install_windows_service.ps1").is_file()
+    assert (_SCRIPTS_DIR / "uninstall_windows_service.ps1").is_file()
+
+
+def test_linux_install_uninstall_scripts_exist():
+    assert (_SCRIPTS_DIR / "install_linux_service.sh").is_file()
+    assert (_SCRIPTS_DIR / "uninstall_linux_service.sh").is_file()
+
+
+def test_windows_install_script_registers_the_exact_expected_service_identity():
+    """Kullanıcı isteğiyle BİREBİR eşleşmeli: Service Name, Display
+    Name, Startup Type (bkz. `agent/winservice.py`'deki AYNI sabitler
+    — ikisi arasında tutarlılık da ayrıca test edilir)."""
+    content = (_SCRIPTS_DIR / "install_windows_service.ps1").read_text(encoding="utf-8")
+    assert 'sc.exe create $ServiceName' in content
+    assert 'start= auto' in content
+    assert '$ServiceName = "ITOpsAgent"' in content
+    assert '$DisplayName = "IT Operations Assistant Telemetry Agent"' in content
+
+
+def test_windows_uninstall_script_stops_and_deletes():
+    content = (_SCRIPTS_DIR / "uninstall_windows_service.ps1").read_text(encoding="utf-8")
+    assert "sc.exe stop" in content
+    assert "sc.exe delete" in content
+
+
+def test_linux_install_script_uses_the_expected_restart_policy():
+    """Kullanıcı isteği: `Restart=always`, `RestartSec=5`."""
+    content = (_SCRIPTS_DIR / "install_linux_service.sh").read_text(encoding="utf-8")
+    assert "Restart=always" in content
+    assert "RestartSec=5" in content
+    assert "systemctl daemon-reload" in content
+    assert "systemctl enable" in content
+
+
+def test_reference_systemd_unit_matches_the_install_scripts_restart_policy():
+    content = (_AGENT_ROOT / "deploy" / "systemd" / "itops-agent.service").read_text(encoding="utf-8")
+    assert "Restart=always" in content
+    assert "RestartSec=5" in content
+
+
+def test_winservice_module_declares_the_exact_expected_service_identity():
+    content = (_AGENT_ROOT / "agent" / "winservice.py").read_text(encoding="utf-8")
+    assert '_svc_name_ = "ITOpsAgent"' in content
+    assert '_svc_display_name_ = "IT Operations Assistant Telemetry Agent"' in content
+
+
+# --- Regresyon: Windows PowerShell 5.1, BOM'suz bir .ps1 dosyasını
+# UTF-8 yerine sistem ANSI codepage'iyle (ör. cp1252) okuyabiliyor — bu
+# durumda em/en dash'in (U+2014/U+2013) UTF-8 baytları (ör. em dash'in
+# son baytı 0x94) cp1252'de bir "akıllı tırnak" karakterine denk
+# geliyor ve PowerShell BUNU bir string sonlandırıcı olarak kabul
+# ediyor: `Write-Error "... — ..."` gibi bir satır GERÇEKTEN bozuk bir
+# .ps1 dosyası üretiyor (gerçek `powershell -File` ile keşfedilip
+# doğrulandı — bkz. bu fazın E2E notları). Yorumlarda (`#...`) bu SORUN
+# DEĞİL (asla tokenize edilmez) — yalnızca gerçek string literal'lar
+# (Write-Host/Write-Error/Write-Warning mesajları) etkileniyor.
+_DANGEROUS_DASH_CHARS = ("—", "–")  # em dash, en dash
+
+
+def test_windows_scripts_never_use_em_or_en_dash_inside_write_string_literals():
+    for ps1_path in list(_SCRIPTS_DIR.glob("*.ps1")) + [
+        _PACKAGING_DIR / "build.ps1",
+        _PACKAGING_DIR / "build_service.ps1",
+    ]:
+        content = ps1_path.read_text(encoding="utf-8")
+        for line_no, line in enumerate(content.splitlines(), start=1):
+            stripped = line.strip()
+            if not stripped.startswith(("Write-Host", "Write-Error", "Write-Warning")):
+                continue
+            for ch in _DANGEROUS_DASH_CHARS:
+                assert ch not in line, (
+                    f"{ps1_path.name}:{line_no} bir Write-* string literal'inde "
+                    f"em/en dash içeriyor — PowerShell 5.1 + BOM'suz dosyada string'i "
+                    f"erken sonlandırabilir (bkz. test docstring'i). ASCII tire (-) kullanın."
+                )

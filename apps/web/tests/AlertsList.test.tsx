@@ -108,4 +108,51 @@ describe("AlertsList", () => {
 
     expect(await screen.findByText(tr.alerts.noMatchFilters)).toBeInTheDocument();
   });
+
+  it("renders a real SNMP interface_down alert once monitoring data is wired in (Faz 70)", async () => {
+    mockAssetsAndScans([{ ...BASE_ASSET, hostname: "core-sw-01" }], [], undefined, [], [], {
+      latest_batch: {
+        started_at: "2026-09-11T00:00:00Z",
+        completed_at: "2026-09-11T00:00:01Z",
+        duration_ms: 10,
+        total: 1,
+        polled: 1,
+        not_configured: 0,
+        results: [
+          {
+            asset_id: "1",
+            polled_at: "2026-09-11T00:00:00Z",
+            status: "success",
+            system: null,
+            interfaces: [
+              {
+                if_index: 1,
+                if_name: "Gi0/1",
+                if_descr: null,
+                if_admin_status: "up",
+                if_oper_status: "down",
+                if_speed_bps: null,
+                if_in_octets: null,
+                if_out_octets: null,
+                if_counters_64bit: null,
+                if_in_bps: null,
+                if_out_bps: null,
+                if_in_errors: null,
+                if_out_errors: null,
+              },
+            ],
+            error: null,
+            duration_ms: 5,
+          },
+        ],
+      },
+      poll_log: [],
+      bandwidth_history: [],
+    });
+
+    renderWithDashboardData(<AlertsList />);
+
+    expect(await screen.findByText(/core-sw-01/)).toBeInTheDocument();
+    expect(screen.getByText(tr.severity.warning)).toBeInTheDocument();
+  });
 });

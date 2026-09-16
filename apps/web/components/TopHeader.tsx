@@ -1,8 +1,10 @@
 "use client";
 
+import { AuthStatus } from "@/components/AuthStatus";
 import { BackendStatus } from "@/components/BackendStatus";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { LanguageToggle } from "@/components/LanguageToggle";
+import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { useLocale } from "@/lib/i18n/LocaleProvider";
 import styles from "./TopHeader.module.css";
 
@@ -19,8 +21,10 @@ export function TopHeader() {
         <GlobalSearch />
       </div>
       <div className={styles.right}>
+        <ThemeSwitcher />
         <LanguageToggle />
         <BackendStatus />
+        <AuthStatus />
       </div>
     </header>
   );

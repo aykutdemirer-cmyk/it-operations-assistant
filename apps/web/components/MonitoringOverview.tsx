@@ -1,195 +1,324 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
-import { fetchMonitoring, type PollBatchResult, type SnmpInterfaceInfo, type SnmpPollResult } from "@/lib/api";
+import {
+  fetchMonitoringHistory,
+  type BandwidthSample,
+  type MonitoringHistoryResponse,
+  type PollLogEntry,
+  type SnmpInterfaceInfo,
+  type SnmpPollResult,
+} from "@/lib/api";
 import { useDashboardData } from "@/lib/DashboardDataProvider";
 import { useLocale } from "@/lib/i18n/LocaleProvider";
+import { timeAgo } from "@/lib/time";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import styles from "./MonitoringOverview.module.css";
 
-type MonitoringFetchStatus = "loading" | "done" | "error";
+type FetchStatus = "loading" | "done" | "error";
 
 type InterfaceRow = { result: SnmpPollResult; iface: SnmpInterfaceInfo };
 
+const REFRESH_INTERVAL_MS = 7000;
+
+function toMbps(bps: number | null): number | null {
+  return bps == null ? null : Math.round((bps / 1_000_000) * 10) / 10;
+}
+
+function formatMbps(bps: number | null): string {
+  const mbps = toMbps(bps);
+  return mbps == null ? "—" : `${mbps.toFixed(1)} Mbps`;
+}
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString();
+}
+
 /**
- * `/monitoring` sayfası — Faz 24'te eklenen gerçek `GET /api/monitoring`
- * endpoint'ine bağlı (Faz 27). SNMP Coverage/Monitored Devices artık
- * gerçek `PollBatchResult` sayılarından (`total`/`polled`) hesaplanıyor
- * — Faz 6'nın `computeMonitoringCoverage` heuristiği (assets tablosundan
- * tahmini) yerine. Interface Monitoring/Bandwidth bölümleri gerçek
- * poll edilen interface'leri gösterir (bugün pratikte yalnızca
- * `SNMP_TARGET_ASSET_ID` ile eşleşen tek bir hedef varsa dolu olur).
- * CPU/Memory backend'de hiç poll edilmediği için (HOST-RESOURCES-MIB
- * implemente edilmedi) HER ZAMAN "veri yok" gösterir — bu bir eksik
- * değil, dürüst bir sınır.
+ * `/monitoring` sayfası — Faz: arka plan SNMP polling worker'ının
+ * (`app/snmp/scheduler.py`) periyodik olarak topladığı canlı telemetriye
+ * bağlı gerçek bir NOC paneli. `GET /api/monitoring/history` hiçbir yeni
+ * poll TETİKLEMEZ (yalnızca arka planda zaten toplanmış, süreç-içi
+ * önbelleği okur) — bu yüzden 7 saniyede bir sessizce (`useAutoRefresh`,
+ * layout sıçraması olmadan) yeniden çekilir. CPU/Bellek artık
+ * HOST-RESOURCES-MIB destekleyen cihazlarda GERÇEK veri taşır (bkz.
+ * `app/snmp/client.py::_get_cpu_memory_info`); desteklemeyen cihazlarda
+ * (çoğu switch/router/firewall) dürüstçe "—" gösterilir, asla uydurulmaz.
  */
 export function MonitoringOverview() {
   const { assets } = useDashboardData();
   const { t } = useLocale();
 
-  const [monitoring, setMonitoring] = useState<PollBatchResult | null>(null);
-  const [status, setStatus] = useState<MonitoringFetchStatus>("loading");
+  const [history, setHistory] = useState<MonitoringHistoryResponse | null>(null);
+  const [status, setStatus] = useState<FetchStatus>("loading");
 
-  useEffect(() => {
-    let cancelled = false;
-
-    fetchMonitoring()
+  const load = useCallback(() => {
+    fetchMonitoringHistory()
       .then((data) => {
-        if (cancelled) return;
-        setMonitoring(data);
+        setHistory(data);
         setStatus("done");
       })
-      .catch(() => {
-        if (!cancelled) setStatus("error");
-      });
-
-    return () => {
-      cancelled = true;
-    };
+      .catch(() => setStatus((prev) => (prev === "done" ? prev : "error")));
   }, []);
 
-  const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
+  useEffect(() => {
+    load();
+  }, [load]);
 
+  useAutoRefresh(load, REFRESH_INTERVAL_MS);
+
+  const latestBatch = history?.latest_batch ?? null;
+  const pollLog: PollLogEntry[] = history?.poll_log ?? [];
+  const bandwidthHistory: BandwidthSample[] = history?.bandwidth_history ?? [];
+
+  const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
   function deviceLabel(assetId: string): string {
     const asset = assetsById.get(assetId);
     return asset?.hostname ?? asset?.ip_address ?? assetId;
   }
 
+  // --- KPI hesaplamaları — hepsi gerçek veriden türetilir, uydurma yok ---
   const coveragePercent =
-    monitoring && monitoring.total > 0 ? Math.round((monitoring.polled / monitoring.total) * 100) : 0;
+    latestBatch && latestBatch.total > 0
+      ? Math.round((latestBatch.polled / latestBatch.total) * 100)
+      : 0;
 
-  const interfaceRows: InterfaceRow[] = (monitoring?.results ?? []).flatMap((result) =>
+  const upAssets = assets.filter((a) => a.status === "up").length;
+  const healthScore = assets.length > 0 ? Math.round((upAssets / assets.length) * 100) : 0;
+
+  const latestSample = bandwidthHistory[bandwidthHistory.length - 1] ?? null;
+  const totalInMbps = toMbps(latestSample?.total_in_bps ?? null);
+  const totalOutMbps = toMbps(latestSample?.total_out_bps ?? null);
+
+  const realLatencies = assets.map((a) => a.latency_ms).filter((v): v is number => v != null);
+  const avgLatency =
+    realLatencies.length > 0
+      ? Math.round((realLatencies.reduce((sum, v) => sum + v, 0) / realLatencies.length) * 10) / 10
+      : null;
+
+  // --- Bant genişliği grafiği verisi (Recharts) ---
+  const chartData = bandwidthHistory.map((sample) => ({
+    time: formatTime(sample.ts),
+    [t.monitoring.bandwidthChart.ingress]: toMbps(sample.total_in_bps),
+    [t.monitoring.bandwidthChart.egress]: toMbps(sample.total_out_bps),
+  }));
+
+  // --- Arayüz tablosu ---
+  const interfaceRows: InterfaceRow[] = (latestBatch?.results ?? []).flatMap((result) =>
     result.interfaces.map((iface) => ({ result, iface })),
   );
-  const bandwidthRows = interfaceRows.filter(
-    ({ iface }) => iface.if_in_bps != null || iface.if_out_bps != null,
-  );
-  const attemptedPolls = (monitoring?.results ?? []).filter((r) => r.status !== "not_configured");
 
   return (
-    <section className={styles.card}>
+    <section className={styles.wrap}>
       <div className={styles.header}>
-        <h2 className={styles.title}>{t.monitoring.title}</h2>
-        <p className={styles.subtitle}>{t.monitoring.subtitle}</p>
+        <div>
+          <h1 className={styles.title}>{t.monitoring.title}</h1>
+          <p className={styles.subtitle}>{t.monitoring.subtitle}</p>
+        </div>
+        <button type="button" className={styles.refreshButton} onClick={load}>
+          {t.common.refresh}
+        </button>
       </div>
-
-      {status !== "error" && attemptedPolls.length === 0 && (
-        <p className={styles.notice}>{t.monitoring.notConfiguredMessage}</p>
-      )}
 
       {status === "loading" && <p className={styles.status}>{t.common.loading}</p>}
       {status === "error" && <p className={styles.status}>{t.monitoring.loadError}</p>}
 
-      {status === "done" && monitoring && (
-        <div className={styles.statGrid}>
-          <div className={styles.stat}>
-            <span className={styles.value}>{coveragePercent}%</span>
-            <span className={styles.label}>{t.monitoring.snmpCoverage}</span>
-          </div>
-          <div className={styles.stat}>
-            <span className={styles.value}>{monitoring.polled}</span>
-            <span className={styles.label}>{t.monitoring.monitoredDevices}</span>
-          </div>
-        </div>
+      {status !== "error" && !latestBatch && (
+        <p className={styles.notice}>{t.monitoring.waitingForFirstPoll}</p>
       )}
 
-      <div className={styles.sections}>
-        <div className={styles.section}>
-          <h3 className={styles.sectionTitle}>{t.monitoring.interfaceMonitoring}</h3>
-          {interfaceRows.length === 0 ? (
-            <p className={styles.noData}>{t.monitoring.noData}</p>
-          ) : (
-            <div className={styles.tableWrap}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>{t.monitoring.columns.device}</th>
-                    <th>{t.monitoring.columns.interface}</th>
-                    <th>{t.monitoring.columns.status}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {interfaceRows.map(({ result, iface }) => (
-                    <tr key={`${result.asset_id}:${iface.if_index}`}>
-                      <td>{deviceLabel(result.asset_id)}</td>
-                      <td>{iface.if_name ?? iface.if_descr ?? `#${iface.if_index}`}</td>
-                      <td>{iface.if_oper_status ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {status !== "loading" && (
+        <>
+          <div className={styles.kpiBar}>
+            <div className={styles.kpiCard}>
+              <div className={styles.gauge}>
+                <div
+                  className={styles.gaugeFill}
+                  style={{ background: `conic-gradient(var(--accent) ${coveragePercent}%, var(--surface-raised) 0)` }}
+                >
+                  <span className={styles.gaugeValue}>{coveragePercent}%</span>
+                </div>
+              </div>
+              <span className={styles.kpiLabel}>{t.monitoring.kpi.coverage}</span>
             </div>
-          )}
-        </div>
-        <div className={styles.section}>
-          <h3 className={styles.sectionTitle}>{t.monitoring.bandwidth}</h3>
-          {bandwidthRows.length === 0 ? (
-            <p className={styles.noData}>{t.monitoring.noData}</p>
-          ) : (
-            <div className={styles.tableWrap}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>{t.monitoring.columns.interface}</th>
-                    <th>{t.monitoring.columns.inBps}</th>
-                    <th>{t.monitoring.columns.outBps}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bandwidthRows.map(({ result, iface }) => (
-                    <tr key={`${result.asset_id}:${iface.if_index}`}>
-                      <td>{iface.if_name ?? iface.if_descr ?? `#${iface.if_index}`}</td>
-                      <td>{formatMbps(iface.if_in_bps)}</td>
-                      <td>{formatMbps(iface.if_out_bps)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className={styles.kpiCard}>
+              <span className={styles.kpiValue}>{latestBatch?.polled ?? 0}</span>
+              <span className={styles.kpiLabel}>{t.monitoring.kpi.monitoredDevices}</span>
             </div>
-          )}
-        </div>
-        <div className={styles.section}>
-          <h3 className={styles.sectionTitle}>{t.monitoring.cpu}</h3>
-          <p className={styles.noData}>{t.monitoring.noData}</p>
-        </div>
-        <div className={styles.section}>
-          <h3 className={styles.sectionTitle}>{t.monitoring.memory}</h3>
-          <p className={styles.noData}>{t.monitoring.noData}</p>
-        </div>
-      </div>
-
-      <div className={styles.section}>
-        <h3 className={styles.sectionTitle}>{t.monitoring.recentPolls}</h3>
-        {attemptedPolls.length === 0 ? (
-          <p className={styles.noData}>{t.monitoring.noData}</p>
-        ) : (
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>{t.monitoring.columns.device}</th>
-                  <th>{t.monitoring.columns.pollStatus}</th>
-                  <th>{t.monitoring.columns.duration}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {attemptedPolls.map((result) => (
-                  <tr key={result.asset_id}>
-                    <td>{deviceLabel(result.asset_id)}</td>
-                    <td>{t.monitoring.pollStatus[result.status]}</td>
-                    <td>{result.duration_ms != null ? `${Math.round(result.duration_ms)}ms` : "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className={styles.kpiCard}>
+              <span className={`${styles.kpiValue} ${healthScore >= 80 ? styles.kpiGood : healthScore >= 50 ? styles.kpiWarn : styles.kpiBad}`}>
+                {healthScore}%
+              </span>
+              <span className={styles.kpiLabel}>{t.monitoring.kpi.healthScore}</span>
+            </div>
+            <div className={styles.kpiCard}>
+              <span className={styles.kpiValue}>
+                {totalInMbps == null && totalOutMbps == null
+                  ? "—"
+                  : `↓${(totalInMbps ?? 0).toFixed(1)} / ↑${(totalOutMbps ?? 0).toFixed(1)} Mbps`}
+              </span>
+              <span className={styles.kpiLabel}>{t.monitoring.kpi.totalBandwidth}</span>
+            </div>
+            <div className={styles.kpiCard}>
+              <span className={styles.kpiValue}>
+                {avgLatency == null ? t.monitoring.kpi.noLatencyData : `${avgLatency} ms`}
+              </span>
+              <span className={styles.kpiLabel}>{t.monitoring.kpi.avgLatency}</span>
+            </div>
           </div>
-        )}
-      </div>
+
+          <div className={styles.panel}>
+            <h2 className={styles.panelTitle}>{t.monitoring.bandwidthChart.title}</h2>
+            {chartData.length === 0 ? (
+              <p className={styles.noData}>{t.monitoring.bandwidthChart.noData}</p>
+            ) : (
+              <div className={styles.chartWrap}>
+                <ResponsiveContainer width="100%" height={220}>
+                  <AreaChart data={chartData}>
+                    <defs>
+                      <linearGradient id="inGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--status-up)" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="var(--status-up)" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="outGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="var(--accent)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
+                    <XAxis dataKey="time" tick={{ fontSize: 11 }} stroke="var(--text-muted)" />
+                    <YAxis tick={{ fontSize: 11 }} stroke="var(--text-muted)" unit=" Mbps" />
+                    <Tooltip
+                      contentStyle={{
+                        background: "var(--surface-raised)",
+                        border: "1px solid var(--border-strong)",
+                        borderRadius: 8,
+                        fontSize: 12,
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey={t.monitoring.bandwidthChart.ingress}
+                      stroke="var(--status-up)"
+                      fill="url(#inGradient)"
+                      strokeWidth={2}
+                      connectNulls
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey={t.monitoring.bandwidthChart.egress}
+                      stroke="var(--accent)"
+                      fill="url(#outGradient)"
+                      strokeWidth={2}
+                      connectNulls
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
+          <div className={styles.twoColumn}>
+            <div className={styles.panel}>
+              <h2 className={styles.panelTitle}>{t.monitoring.interfaceTable.title}</h2>
+              {interfaceRows.length === 0 ? (
+                <p className={styles.noData}>{t.monitoring.noData}</p>
+              ) : (
+                <div className={styles.tableWrap}>
+                  <table className={styles.table}>
+                    <thead>
+                      <tr>
+                        <th>{t.monitoring.interfaceTable.columns.device}</th>
+                        <th>{t.monitoring.interfaceTable.columns.interfaceName}</th>
+                        <th>{t.monitoring.interfaceTable.columns.status}</th>
+                        <th>{t.monitoring.interfaceTable.columns.inMbps}</th>
+                        <th>{t.monitoring.interfaceTable.columns.outMbps}</th>
+                        <th>{t.monitoring.interfaceTable.columns.errors}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {interfaceRows.map(({ result, iface }) => {
+                        const errorCount = (iface.if_in_errors ?? 0) + (iface.if_out_errors ?? 0);
+                        const up = iface.if_oper_status === "up";
+                        return (
+                          <tr key={`${result.asset_id}:${iface.if_index}`}>
+                            <td>{deviceLabel(result.asset_id)}</td>
+                            <td>{iface.if_name ?? iface.if_descr ?? `#${iface.if_index}`}</td>
+                            <td>
+                              <span className={styles.statusCell}>
+                                <span className={`${styles.dot} ${up ? styles.dotUp : styles.dotDown}`} />
+                                {iface.if_oper_status ?? "—"}
+                              </span>
+                            </td>
+                            <td>{formatMbps(iface.if_in_bps)}</td>
+                            <td>{formatMbps(iface.if_out_bps)}</td>
+                            <td className={errorCount > 0 ? styles.errorCell : undefined}>{errorCount}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className={styles.panel}>
+              <h2 className={styles.panelTitle}>{t.monitoring.pollLog.title}</h2>
+              {pollLog.length === 0 ? (
+                <p className={styles.noData}>{t.monitoring.pollLog.empty}</p>
+              ) : (
+                <div className={styles.tableWrap}>
+                  <table className={styles.table}>
+                    <thead>
+                      <tr>
+                        <th>{t.monitoring.pollLog.columns.device}</th>
+                        <th>{t.monitoring.pollLog.columns.status}</th>
+                        <th>{t.monitoring.pollLog.columns.duration}</th>
+                        <th>{t.monitoring.pollLog.columns.oidCount}</th>
+                        <th>{t.monitoring.pollLog.columns.time}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pollLog.map((entry, idx) => (
+                        <tr key={`${entry.asset_id}:${entry.polled_at}:${idx}`}>
+                          <td>{deviceLabel(entry.asset_id)}</td>
+                          <td>
+                            <span className={styles.statusCell}>
+                              <span
+                                className={`${styles.dot} ${
+                                  entry.status === "success" || entry.status === "partial"
+                                    ? styles.dotUp
+                                    : entry.status === "not_configured"
+                                      ? styles.dotMuted
+                                      : styles.dotDown
+                                }`}
+                              />
+                              {t.monitoring.pollStatus[entry.status]}
+                            </span>
+                          </td>
+                          <td>{entry.duration_ms != null ? `${Math.round(entry.duration_ms)}ms` : "—"}</td>
+                          <td>{entry.oid_count}</td>
+                          <td>{timeAgo(entry.polled_at, t.timeAgo)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </section>
   );
-}
-
-function formatMbps(bps: number | null): string {
-  if (bps == null) return "—";
-  return `${(bps / 1_000_000).toFixed(1)} Mbps`;
 }

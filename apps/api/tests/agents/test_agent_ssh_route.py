@@ -37,7 +37,6 @@ async def test_rejects_when_agent_not_found():
 
     with (
         patch("app.routes.agent_ssh.get_connection", AsyncMock(return_value=fake_conn)),
-        patch("app.routes.agent_ssh.ensure_schema", AsyncMock()),
         patch("app.routes.agent_ssh.service.get_agent_detail", AsyncMock(return_value=None)),
     ):
         await agent_ssh_terminal(ws, uuid4())
@@ -56,7 +55,6 @@ async def test_rejects_when_agent_has_no_local_ip():
 
     with (
         patch("app.routes.agent_ssh.get_connection", AsyncMock(return_value=fake_conn)),
-        patch("app.routes.agent_ssh.ensure_schema", AsyncMock()),
         patch("app.routes.agent_ssh.service.get_agent_detail", AsyncMock(return_value=fake_agent)),
     ):
         await agent_ssh_terminal(ws, uuid4())
@@ -75,7 +73,6 @@ async def test_delegates_to_ssh_proxy_with_agent_local_ip_never_client_supplied_
 
     with (
         patch("app.routes.agent_ssh.get_connection", AsyncMock(return_value=fake_conn)),
-        patch("app.routes.agent_ssh.ensure_schema", AsyncMock()),
         patch("app.routes.agent_ssh.service.get_agent_detail", AsyncMock(return_value=fake_agent)),
         patch("app.routes.agent_ssh.run_ssh_websocket_session", AsyncMock()) as mock_run,
     ):

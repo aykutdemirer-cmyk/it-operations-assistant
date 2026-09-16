@@ -15,6 +15,8 @@ function agent(status: AgentSummary["status"], assetId: string | null = null): A
     status,
     registered_at: "2026-01-01T00:00:00Z",
     last_heartbeat_at: null,
+    update_available: false,
+    latest_available_version: null,
   };
 }
 

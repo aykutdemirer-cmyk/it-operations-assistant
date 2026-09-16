@@ -1,12 +1,35 @@
 .topRow {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 10px;
   margin-bottom: 8px;
 }
 
 .lastScan {
   font-size: 0.75rem;
   color: var(--text-muted);
+}
+
+.refreshButton {
+  padding: 5px 12px;
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  background-color: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.refreshButton:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.refreshButton:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .grid {
@@ -52,6 +75,9 @@
   border-left: 3px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
   transition:
     border-color 0.15s ease,
     transform 0.15s ease;

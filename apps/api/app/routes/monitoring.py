@@ -1,13 +1,34 @@
 import logging
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from app.db.assets import get_connection, list_assets
+from app.snmp.monitoring_cache import (
+    BandwidthSample,
+    PollLogEntry,
+    get_bandwidth_history,
+    get_latest_batch,
+    get_poll_log,
+)
 from app.snmp.poller import PollBatchResult, PollingEngine
 
 router = APIRouter(prefix="/api")
 
 logger = logging.getLogger(__name__)
+
+
+class MonitoringHistoryResponse(BaseModel):
+    """Arka plan SNMP polling worker'ının (`app/snmp/scheduler.py`)
+    süreç-içi önbelleğinden (`monitoring_cache.py`) okunur — bu endpoint
+    HİÇBİR yeni poll TETİKLEMEZ, yalnızca ARKA PLANDA zaten toplanmış
+    veriyi döner (bu yüzden DB bağlantısı bile gerekmez, çok hızlıdır).
+    `latest_batch=None` ise worker HENÜZ hiç tur atmamıştır (backend az
+    önce başladı) — dürüstçe boş/`None` döner, asla uydurulmaz."""
+
+    latest_batch: PollBatchResult | None
+    poll_log: list[PollLogEntry]
+    bandwidth_history: list[BandwidthSample]
 
 
 @router.get("/monitoring", response_model=PollBatchResult)
@@ -44,3 +65,18 @@ async def get_monitoring_overview() -> PollBatchResult:
         raise HTTPException(status_code=500, detail="Asset listesi alınamadı") from exc
     finally:
         await conn.close()
+
+
+@router.get("/monitoring/history", response_model=MonitoringHistoryResponse)
+async def get_monitoring_history() -> MonitoringHistoryResponse:
+    """Arka plan SNMP polling worker'ının (`app/snmp/scheduler.py`)
+    periyodik olarak topladığı canlı telemetriyi döner — "İzleme"
+    sayfasının bant genişliği grafiği + poll audit log akışı için.
+    `GET /api/monitoring`'in AKSİNE yeni bir poll turu TETİKLEMEZ,
+    DB'ye hiç bağlanmaz (yalnızca süreç-içi önbellek okunur) — bu
+    yüzden çok sık (ör. 5-10sn) çağrılması güvenlidir."""
+    return MonitoringHistoryResponse(
+        latest_batch=get_latest_batch(),
+        poll_log=get_poll_log(),
+        bandwidth_history=get_bandwidth_history(),
+    )

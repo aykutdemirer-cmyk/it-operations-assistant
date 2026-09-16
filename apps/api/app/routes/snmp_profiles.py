@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 
-from app.db.snmp_profiles import ensure_schema, get_connection
+from app.db.snmp_profiles import get_connection
 from app.snmp import profile_service as service
 from app.snmp.profile_config import SNMPProfileResponse, SNMPProfileWriteRequest
 from app.snmp.profile_service import (
@@ -24,7 +24,8 @@ async def _connect():
     except OSError as exc:
         logger.warning("PostgreSQL erişilemedi (snmp profiles)")
         raise HTTPException(status_code=503, detail={"database": "unreachable"}) from exc
-    await ensure_schema(conn)
+    # Şema artık uygulama başlangıcında tek seferlik kurulur (bkz.
+    # `app/main.py::_ensure_schema_once`).
     return conn
 
 

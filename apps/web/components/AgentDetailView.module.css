@@ -363,3 +363,46 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+.tabToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.checkingNotice {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.linkLikeButton {
+  padding: 0;
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.linkLikeButton:hover {
+  color: var(--accent);
+}
+
+.rebootBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--status-down);
+  background-color: var(--status-down-soft);
+  border: 1px solid var(--status-down);
+  border-radius: var(--radius-md);
+}

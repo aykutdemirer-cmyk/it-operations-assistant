@@ -1,0 +1,181 @@
+/* Faz 76 — `GuacamoleRdpViewer.module.css` ile AYNI koyu "session
+   screen" görsel dili — bilerek sabit koyu (projenin geri kalanının
+   açık/koyu tema seçiminden bağımsız). */
+
+.page {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  background-color: #020617;
+  color: #f1f5f9;
+}
+
+.backLink {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  color: #cbd5f5;
+  background-color: rgba(15, 23, 42, 0.7);
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  text-decoration: none;
+}
+
+.stage {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 56px 24px 24px;
+}
+
+.toolbar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  color: #e2e8f0;
+  background-color: rgba(15, 23, 42, 0.85);
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  max-width: calc(100% - 32px);
+  flex-wrap: wrap;
+}
+
+.statusGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.statusDotConnected {
+  background-color: #4ade80;
+}
+
+.statusDotConnecting {
+  background-color: #facc15;
+}
+
+.statusDotError {
+  background-color: #f87171;
+}
+
+.deviceName {
+  font-weight: 600;
+}
+
+.exitButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #fca5a5;
+  background: none;
+  border: 1px solid #7f1d1d;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.exitButton:hover {
+  background-color: rgba(127, 29, 29, 0.3);
+}
+
+.frame {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+  background-color: #fff;
+}
+
+.errorBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  text-align: center;
+  color: #fca5a5;
+}
+
+.closedBox {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.loaderOverlay {
+  position: absolute;
+  inset: 24px;
+  top: 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background-color: rgba(2, 6, 23, 0.92);
+  border-radius: 12px;
+  color: #94a3b8;
+}
+
+.loaderRing {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loaderSpinner {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid #1e293b;
+  border-top-color: #38bdf8;
+  animation: pam-web-spin 1s linear infinite;
+}
+
+.loaderIcon {
+  color: #38bdf8;
+}
+
+@keyframes pam-web-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

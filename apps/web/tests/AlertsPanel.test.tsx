@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AlertsPanel } from "@/components/AlertsPanel";
 import { tr } from "@/lib/i18n/translations";
-import { renderWithDashboardData } from "./testUtils";
+import { mockAssetsAndScans, renderWithDashboardData } from "./testUtils";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -111,5 +111,43 @@ describe("AlertsPanel", () => {
     expect(
       screen.queryByText(new RegExp(`${tr.severity.critical}$`)),
     ).not.toBeInTheDocument();
+  });
+
+  it("renders a real SNMP device_unreachable alert once monitoring data is wired in (Faz 70)", async () => {
+    mockAssetsAndScans(
+      [{ ...BASE_ASSET, hostname: "core-sw-01" }],
+      [],
+      undefined,
+      [],
+      [],
+      {
+        latest_batch: {
+          started_at: "2026-09-11T00:00:00Z",
+          completed_at: "2026-09-11T00:00:01Z",
+          duration_ms: 10,
+          total: 1,
+          polled: 1,
+          not_configured: 0,
+          results: [
+            {
+              asset_id: "1",
+              polled_at: "2026-09-11T00:00:00Z",
+              status: "unreachable",
+              system: null,
+              interfaces: [],
+              error: "timed out",
+              duration_ms: 2000,
+            },
+          ],
+        },
+        poll_log: [],
+        bandwidth_history: [],
+      },
+    );
+
+    renderWithDashboardData(<AlertsPanel />);
+
+    expect(await screen.findByText(tr.severity.critical)).toBeInTheDocument();
+    expect(screen.getByText(/core-sw-01/)).toBeInTheDocument();
   });
 });

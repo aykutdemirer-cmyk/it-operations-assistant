@@ -1,0 +1,370 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.title {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.notConfigured {
+  padding: 32px;
+  text-align: center;
+  color: var(--text-secondary);
+  background-color: var(--surface);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+}
+
+.notConfigured a {
+  color: var(--accent);
+}
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0;
+  background-color: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.kpiCard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 20px;
+  /* Faz 73 — kart arası dikey çizgi ayırıcı (financial-dashboard tarzı
+   * KPI şeridi) — her kartın kendi kutusu yerine tek bir şerit içinde
+   * ince bir dikey çizgiyle bölünüyor. */
+  border-left: 1px solid var(--border-subtle);
+}
+
+.kpiCard:first-child {
+  border-left: none;
+}
+
+.kpiValue {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.kpiLabel {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.datastoreCard {
+  padding: 16px;
+  background-color: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.datastoreRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.datastoreLabel {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.progressTrack {
+  height: 8px;
+  border-radius: 999px;
+  background-color: var(--surface-raised);
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 999px;
+  background-color: var(--accent);
+}
+
+.progressFillWarning {
+  background-color: var(--status-warning);
+}
+
+.progressFillDanger {
+  background-color: var(--status-down);
+}
+
+.toolbar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 200px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  background-color: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.filterSelect {
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  background-color: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+/* Faz 73 — Kullanıcı VM'leri / Sistem VM'leri (vCLS-) sekme çifti. */
+.vmScopeToggle {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.vmScopeButton,
+.vmScopeButtonActive {
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.vmScopeButton {
+  color: var(--text-secondary);
+  background-color: var(--surface);
+}
+
+.vmScopeButton:hover {
+  background-color: var(--surface-raised);
+}
+
+.vmScopeButtonActive {
+  color: var(--accent-contrast, #fff);
+  background-color: var(--accent);
+}
+
+.tableWrap {
+  overflow-x: auto;
+  max-width: 100%;
+  background-color: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.table th {
+  text-align: left;
+  padding: 10px 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 10px 14px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.vmNameButton {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font-weight: 500;
+  cursor: pointer;
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.vmNameButton:hover {
+  text-decoration: underline;
+}
+
+.powerBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.powerOn {
+  background-color: color-mix(in srgb, var(--status-up) 18%, transparent);
+  color: var(--status-up);
+}
+
+.powerOff {
+  background-color: color-mix(in srgb, var(--status-unknown) 18%, transparent);
+  color: var(--text-secondary);
+}
+
+.powerSuspended {
+  background-color: color-mix(in srgb, var(--status-warning) 18%, transparent);
+  color: var(--status-warning);
+}
+
+.mono {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.8rem;
+}
+
+/* Faz 73 — "Tahsis" (vCPU/RAM) rozeti. Anlık kullanım YÜZDESİ yok
+ * (vCenter REST Inventory API'sinde bulunmuyor, bkz. VMDetailModal
+ * `honestNote`) — bu yalnızca tahsis edilen kaynağı gösterir. */
+.allocationBadge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  font-family: var(--font-geist-mono), monospace;
+  color: var(--text-secondary);
+  background-color: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.powerActionSelect {
+  padding: 4px 8px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--accent);
+  background-color: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  max-width: 140px;
+}
+
+.powerActionSelect:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.noData {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.actionButton {
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--accent);
+  background: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.actionButton:hover {
+  background-color: var(--surface-raised);
+}
+
+.actionButton:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.actionButtonDanger {
+  color: var(--status-down);
+}
+
+/* --- VM Detay Modalı --- */
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.detailField {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.detailLabel {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.detailValue {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.honestNote {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: 4px;
+}
+
+.modalActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}

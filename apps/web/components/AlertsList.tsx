@@ -23,12 +23,12 @@ const SEVERITY_CLASS: Record<AlertSeverity, string> = {
  * `lib/alerts.ts`).
  */
 export function AlertsList() {
-  const { assets, assetsStatus: status } = useDashboardData();
+  const { assets, assetsStatus: status, monitoring } = useDashboardData();
   const { t } = useLocale();
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>("all");
   const [search, setSearch] = useState("");
 
-  const alerts = computeAlerts(assets, t.alertMessages);
+  const alerts = computeAlerts(assets, t.alertMessages, { monitoring });
 
   const severityLabel: Record<AlertSeverity, string> = {
     CRITICAL: t.severity.critical,

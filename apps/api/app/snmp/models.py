@@ -28,6 +28,13 @@ class SystemInfo(BaseModel):
     sys_descr: str | None = None
     sys_object_id: str | None = None
     sys_uptime_ticks: int | None = None  # SNMP TimeTicks (1/100 saniye)
+    # HOST-RESOURCES-MIB (bkz. oid_map.py) — çoğu switch/router/firewall
+    # bunu HİÇ desteklemez, bu durumda dürüstçe `None` kalır (asla
+    # tahmini bir değer değil). Desteklense bile `partial`/`success`
+    # durumunu ETKİLEMEZ — bkz. client.py::_get_cpu_memory_info.
+    cpu_percent: float | None = None  # 0-100, birden fazla çekirdek varsa ortalama
+    memory_used_bytes: int | None = None
+    memory_total_bytes: int | None = None
 
 
 class InterfaceInfo(BaseModel):

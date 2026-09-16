@@ -12,8 +12,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, field_validator
 
-CommandType = Literal["kill_process", "service_control", "refresh_inventory", "power_control"]
-CommandAction = Literal["kill", "start", "stop", "restart", "collect", "reboot", "shutdown", "logoff"]
+CommandType = Literal[
+    "kill_process", "service_control", "refresh_inventory", "power_control", "uninstall_service", "update_self",
+    "check_updates", "install_update",
+]
+CommandAction = Literal[
+    "kill", "start", "stop", "restart", "collect", "reboot", "shutdown", "logoff", "uninstall", "update", "scan",
+    "install",
+]
 CommandStatus = Literal["pending", "sent", "succeeded", "failed", "rejected"]
 
 _VALID_ACTIONS_BY_TYPE: dict[str, set[str]] = {
@@ -28,6 +34,22 @@ _VALID_ACTIONS_BY_TYPE: dict[str, set[str]] = {
     # etmediği için frontend sabit `"system"` gönderir (bkz.
     # `apps/agent/agent/commands.py::control_power`).
     "power_control": {"reboot", "shutdown", "logoff"},
+    # Lifecycle Management — Uzaktan Silme/Güncelleme. `target` her
+    # ikisi için de anlamsız (tek bir kendi agent süreci) ama validator
+    # boş string kabul etmediği için sabit `"self"` gönderilir (bkz.
+    # `app/agents/service.py::delete_agent`/`trigger_agent_update`).
+    "uninstall_service": {"uninstall"},
+    "update_self": {"update"},
+    # Windows Update Tarama Motoru — "Güncellemeleri Kontrol Et" butonu.
+    # `refresh_inventory` ile AYNI gerekçeyle `target` anlamsız (sabit
+    # "self" — agent kendi makinesini tarar, backend hedef seçmez).
+    "check_updates": {"scan"},
+    # Windows Update Yükleme — `target`: belirli bir KB numarası (ör.
+    # `"KB5001234"`) veya bekleyen TÜM güncellemeler için `"all"`.
+    # Geri dönüşü OLMAYAN, GERÇEK bir sistem değişikliği — frontend
+    # `kill_process`/`service_control`/`power_control` ile AYNI
+    # `ConfirmModal` zorunluluğunu uygular.
+    "install_update": {"install"},
 }
 
 

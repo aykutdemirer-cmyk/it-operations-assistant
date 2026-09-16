@@ -110,6 +110,15 @@ async def test_poll_uses_real_client_when_profile_resolves(isolated_db, client):
     assert response.status_code == 200
     assert response.json()["status"] == "success"
     mock_poll.assert_called_once()
+    # Gerçek kullanıcı bildirimiyle bulunan bir hata: `assets.ip_address`
+    # (INET) asyncpg'den bir `ipaddress.IPv4Address` NESNESİ olarak
+    # gelir, düz bir `str` DEĞİL — `str()` dönüşümü OLMADAN pysnmp'nin
+    # `slim.get()`'i `TypeError` ile çöküyordu (bkz. `app/routes/
+    # snmp.py::poll_asset_snmp`'deki düzeltme). Poll edilen host'un
+    # GERÇEK bir string olduğu burada AÇIKÇA doğrulanır.
+    called_host = mock_poll.call_args.args[1]
+    assert called_host == str(asset["ip_address"])
+    assert isinstance(called_host, str)
 
 
 @pytest.mark.anyio

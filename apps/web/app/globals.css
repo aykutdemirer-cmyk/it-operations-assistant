@@ -41,24 +41,28 @@
   --sidebar-width: 240px;
 }
 
-/* Açık tema değerleri — hem sistem tercihi (JS mount olmadan önceki kısa
-   pencere için) hem de `ThemeProvider`'ın ayarladığı açık
-   `data-theme="light"` özniteliği için. Açık bir "dark" seçimi varsa
-   (`:not([data-theme="dark"])`), sistem tercihi onu asla ezemez. */
+/* ── Faz 59 — Çoklu Tema Motoru ──────────────────────────────────────
+   `:root` yukarıdaki değerler = `fortios-dark` (varsayılan). Aşağıda 3
+   ek tema `:root[data-theme="..."]` ile YALNIZCA renk token'larını
+   ezer (tipografi/spacing değişmez). Legacy `data-theme` değerleri
+   (`dark`/`light`) `ThemeProvider` tarafından mount'ta yeni isimlere
+   migrate edilir, bu yüzden burada yalnızca yeni isimler var.
+   `enterprise-light` = Faz 21'in açık paleti. */
+
+/* Sistem tercihi (JS mount olmadan önceki kısa pencere için) — YALNIZCA
+   hiç açık seçim yapılmamışsa geçerli (`:not([data-theme])`); yeni koyu
+   temalar yanlışlıkla açığa düşmesin. */
 @media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
+  :root:not([data-theme]) {
     --background: #f4f6f8;
     --foreground: #171b21;
-
     --surface: #ffffff;
     --surface-raised: #ffffff;
     --border-subtle: #e2e6eb;
     --border-strong: #c9d0d9;
-
     --text-primary: #171b21;
     --text-secondary: #4b5563;
     --text-muted: #7b8794;
-
     --accent-soft: rgba(59, 130, 246, 0.1);
     --accent-cyan-soft: rgba(34, 211, 238, 0.1);
     --accent-violet-soft: rgba(167, 139, 250, 0.1);
@@ -66,36 +70,103 @@
     --status-down-soft: rgba(239, 68, 68, 0.12);
     --status-warning-soft: rgba(245, 158, 11, 0.12);
     --status-unknown-soft: rgba(148, 163, 184, 0.12);
-
     --gradient-card: linear-gradient(155deg, rgba(59, 130, 246, 0.05), rgba(167, 139, 250, 0.02) 60%);
     --glow-accent: 0 0 0 1px rgba(59, 130, 246, 0.15), 0 0 12px rgba(59, 130, 246, 0.08);
     --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.08);
   }
 }
 
-/* `ThemeProvider`'ın açıkça ayarladığı `data-theme="light"` — sistem
-   tercihinden bağımsız olarak her zaman uygulanır. */
-:root[data-theme="light"] {
+/* fortios-dark — `:root` varsayılanıyla birebir aynı; toggle'ın her iki
+   yönde de kazanması için açıkça yeniden bildirilir. */
+:root[data-theme="fortios-dark"] {
+  --background: #0a0e15;
+  --foreground: #e6edf3;
+  --surface: #11161f;
+  --surface-raised: #171d29;
+  --border-subtle: #232b3a;
+  --border-strong: #303b4f;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b98a9;
+  --text-muted: #5b6675;
+  --accent: #3b82f6;
+  --accent-soft: rgba(59, 130, 246, 0.14);
+  --accent-cyan: #22d3ee;
+  --accent-cyan-soft: rgba(34, 211, 238, 0.14);
+  --accent-violet: #a78bfa;
+  --accent-violet-soft: rgba(167, 139, 250, 0.14);
+  --gradient-card: linear-gradient(155deg, rgba(59, 130, 246, 0.08), rgba(167, 139, 250, 0.03) 60%);
+  --glow-accent: 0 0 0 1px rgba(59, 130, 246, 0.25), 0 0 16px rgba(59, 130, 246, 0.12);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+}
+
+/* cyber-neon — neredeyse siyah zemin, parlak yeşil/cyan neon vurgular. */
+:root[data-theme="cyber-neon"] {
+  --background: #05070a;
+  --foreground: #d7ffe9;
+  --surface: #0a0f14;
+  --surface-raised: #0e151c;
+  --border-subtle: #143024;
+  --border-strong: #1f5540;
+  --text-primary: #d7ffe9;
+  --text-secondary: #7fdcb4;
+  --text-muted: #4b7d68;
+  --accent: #00ff9c;
+  --accent-soft: rgba(0, 255, 156, 0.16);
+  --accent-cyan: #22f5ff;
+  --accent-cyan-soft: rgba(34, 245, 255, 0.16);
+  --accent-violet: #ff5cf0;
+  --accent-violet-soft: rgba(255, 92, 240, 0.16);
+  --gradient-card: linear-gradient(155deg, rgba(0, 255, 156, 0.1), rgba(34, 245, 255, 0.04) 60%);
+  --glow-accent: 0 0 0 1px rgba(0, 255, 156, 0.35), 0 0 18px rgba(0, 255, 156, 0.18);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.55);
+  color-scheme: dark;
+}
+
+/* midnight-blue — kurumsal lacivert-mavi tonları. */
+:root[data-theme="midnight-blue"] {
+  --background: #0b1220;
+  --foreground: #e4ecfb;
+  --surface: #111c30;
+  --surface-raised: #17243d;
+  --border-subtle: #24314d;
+  --border-strong: #33456b;
+  --text-primary: #e4ecfb;
+  --text-secondary: #9db0d4;
+  --text-muted: #64769b;
+  --accent: #4c8dff;
+  --accent-soft: rgba(76, 141, 255, 0.16);
+  --accent-cyan: #38bdf8;
+  --accent-cyan-soft: rgba(56, 189, 248, 0.16);
+  --accent-violet: #8b9cff;
+  --accent-violet-soft: rgba(139, 156, 255, 0.16);
+  --gradient-card: linear-gradient(155deg, rgba(76, 141, 255, 0.1), rgba(139, 156, 255, 0.04) 60%);
+  --glow-accent: 0 0 0 1px rgba(76, 141, 255, 0.28), 0 0 16px rgba(76, 141, 255, 0.14);
+  --shadow-card: 0 1px 2px rgba(2, 6, 20, 0.5);
+  color-scheme: dark;
+}
+
+/* enterprise-light — Faz 21'in açık, yüksek kontrastlı kurumsal teması. */
+:root[data-theme="enterprise-light"] {
   --background: #f4f6f8;
   --foreground: #171b21;
-
   --surface: #ffffff;
   --surface-raised: #ffffff;
   --border-subtle: #e2e6eb;
   --border-strong: #c9d0d9;
-
   --text-primary: #171b21;
   --text-secondary: #4b5563;
   --text-muted: #7b8794;
-
+  --accent: #3b82f6;
   --accent-soft: rgba(59, 130, 246, 0.1);
+  --accent-cyan: #0ea5e9;
   --accent-cyan-soft: rgba(34, 211, 238, 0.1);
+  --accent-violet: #7c3aed;
   --accent-violet-soft: rgba(167, 139, 250, 0.1);
   --status-up-soft: rgba(34, 197, 94, 0.12);
   --status-down-soft: rgba(239, 68, 68, 0.12);
   --status-warning-soft: rgba(245, 158, 11, 0.12);
   --status-unknown-soft: rgba(148, 163, 184, 0.12);
-
   --gradient-card: linear-gradient(155deg, rgba(59, 130, 246, 0.05), rgba(167, 139, 250, 0.02) 60%);
   --glow-accent: 0 0 0 1px rgba(59, 130, 246, 0.15), 0 0 12px rgba(59, 130, 246, 0.08);
   --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.08);
@@ -136,7 +207,7 @@ a {
 }
 
 @media (prefers-color-scheme: light) {
-  html:not([data-theme="dark"]) {
+  html:not([data-theme]) {
     color-scheme: light;
   }
 }

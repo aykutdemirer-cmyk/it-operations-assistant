@@ -96,6 +96,22 @@
   white-space: nowrap;
 }
 
+.deviceList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.deviceLink {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+
+.deviceLink:hover {
+  text-decoration: underline;
+}
+
 .dot {
   width: 8px;
   height: 8px;
@@ -124,9 +140,15 @@
   align-items: center;
   gap: 6px;
   margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--border-subtle);
   font-size: 0.78rem;
   color: var(--text-secondary);
   white-space: nowrap;
+}
+
+.testResultPrefix {
+  color: var(--text-muted);
 }
 
 .testSysName {

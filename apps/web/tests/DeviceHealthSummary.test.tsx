@@ -59,6 +59,54 @@ describe("DeviceHealthSummary", () => {
     expect(await screen.findByText(`${tr.dashboard.deviceHealth.unmonitored}: 3`)).toBeInTheDocument();
   });
 
+  it("counts a real SNMP interface_down alert as Warning once monitoring data is wired in (Faz 70)", async () => {
+    mockAssetsAndScans([UP_HEALTHY_ASSET], [], undefined, [], [], {
+      latest_batch: {
+        started_at: "2026-09-11T00:00:00Z",
+        completed_at: "2026-09-11T00:00:01Z",
+        duration_ms: 10,
+        total: 1,
+        polled: 1,
+        not_configured: 0,
+        results: [
+          {
+            asset_id: "3",
+            polled_at: "2026-09-11T00:00:00Z",
+            status: "success",
+            system: null,
+            interfaces: [
+              {
+                if_index: 1,
+                if_name: "Gi0/1",
+                if_descr: null,
+                if_admin_status: "up",
+                if_oper_status: "down",
+                if_speed_bps: null,
+                if_in_octets: null,
+                if_out_octets: null,
+                if_counters_64bit: null,
+                if_in_bps: null,
+                if_out_bps: null,
+                if_in_errors: null,
+                if_out_errors: null,
+              },
+            ],
+            error: null,
+            duration_ms: 5,
+          },
+        ],
+      },
+      poll_log: [],
+      bandwidth_history: [],
+    });
+
+    const d = tr.dashboard.deviceHealth;
+    renderWithDashboardData(<DeviceHealthSummary />);
+
+    expect(await screen.findByText(`${d.warning}: 1`)).toBeInTheDocument();
+    expect(screen.getByText(`${d.healthy}: 0`)).toBeInTheDocument();
+  });
+
   it("shows an error state", async () => {
     vi.stubGlobal(
       "fetch",

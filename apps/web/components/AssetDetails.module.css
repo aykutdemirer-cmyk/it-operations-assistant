@@ -70,6 +70,31 @@
   text-decoration: underline;
 }
 
+/* Faz 61 — firewall/router asset'lerinde PAM CLI/SSH kısayolu. */
+.pamActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 2px 0 6px;
+}
+
+.pamButton {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background-color: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.pamButton:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .tabs {
   display: flex;
   flex-wrap: wrap;

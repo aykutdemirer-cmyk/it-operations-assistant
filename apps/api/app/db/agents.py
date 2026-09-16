@@ -111,9 +111,117 @@ async def set_agent_asset_id(
 
 
 async def list_agents(conn: asyncpg.Connection) -> list[dict]:
-    """Tüm agent'ları `registered_at DESC` sırayla döner."""
-    rows = await conn.fetch("SELECT * FROM agents ORDER BY registered_at DESC")
+    """AKTİF (arşivlenmemiş) agent'ları `registered_at DESC` sırayla
+    döner — Faz: arşivlenmiş agent'lar artık bu listeden HARİÇ
+    tutulur (bkz. `list_archived_agents`)."""
+    rows = await conn.fetch(
+        "SELECT * FROM agents WHERE archived_at IS NULL ORDER BY registered_at DESC"
+    )
     return [dict(row) for row in rows]
+
+
+async def list_archived_agents(conn: asyncpg.Connection) -> list[dict]:
+    rows = await conn.fetch(
+        "SELECT * FROM agents WHERE archived_at IS NOT NULL ORDER BY archived_at DESC"
+    )
+    return [dict(row) for row in rows]
+
+
+async def archive_agent(
+    conn: asyncpg.Connection,
+    agent_id: UUID,
+    *,
+    reason: str,
+    inactive_days: int | None = None,
+) -> dict | None:
+    """Agent'ı arşivler (soft-delete) — `archived_at`/`archived_reason`
+    dolar, mevcut `revoked_at` (Faz 28) de doldurulur (henüz set
+    edilmemişse) böylece arşivlenmiş bir agent artık kimlik
+    doğrulayıp heartbeat/telemetry gönderemez. Zaten arşivliyse
+    sessizce hiçbir şey değiştirmez (idempotent)."""
+    row = await conn.fetchrow(
+        """
+        UPDATE agents SET
+            archived_at = clock_timestamp(),
+            archived_reason = $2,
+            archived_after_inactive_days = $3,
+            revoked_at = COALESCE(revoked_at, clock_timestamp())
+        WHERE id = $1 AND archived_at IS NULL
+        RETURNING *;
+        """,
+        agent_id, reason, inactive_days,
+    )
+    if row is not None:
+        return dict(row)
+    return await get_agent_by_id(conn, agent_id)
+
+
+async def restore_agent(conn: asyncpg.Connection, agent_id: UUID) -> dict | None:
+    """Arşivi ve token iptalini birlikte geri alır — agent tekrar
+    aktif listede görünür VE tekrar kimlik doğrulayabilir (bkz.
+    `archive_agent` docstring'i)."""
+    row = await conn.fetchrow(
+        """
+        UPDATE agents SET
+            archived_at = NULL,
+            archived_reason = NULL,
+            archived_after_inactive_days = NULL,
+            revoked_at = NULL
+        WHERE id = $1
+        RETURNING *;
+        """,
+        agent_id,
+    )
+    return dict(row) if row else None
+
+
+async def list_inactive_agent_ids(conn: asyncpg.Connection, retention_days: int) -> list[UUID]:
+    """`retention_days`'ten uzun süredir heartbeat GÖNDERMEMİŞ (veya
+    hiç heartbeat atmamış VE `retention_days`'ten daha önce kayıt
+    olmuş) aktif agent'ların id'lerini döner — arka plan temizleme
+    worker'ı (`app/agents/scheduler.py`) için. Zaten arşivli olanlar
+    zaten `list_agents`/burada hariç (WHERE archived_at IS NULL)."""
+    rows = await conn.fetch(
+        """
+        SELECT id FROM agents
+        WHERE archived_at IS NULL
+          AND COALESCE(last_heartbeat_at, registered_at) < now() - ($1 || ' days')::interval
+        """,
+        str(retention_days),
+    )
+    return [row["id"] for row in rows]
+
+
+async def get_retention_policy(conn: asyncpg.Connection) -> dict:
+    """Tek satırlık politika — hiç ayarlanmamışsa varsayılan (`enabled=
+    false`, `retention_days=30`) değerlerle bir satır oluşturur (ilk
+    okuma anında, elle bir migration/seed GEREKMEZ)."""
+    row = await conn.fetchrow(
+        """
+        INSERT INTO agent_retention_policy (id) VALUES (1)
+        ON CONFLICT (id) DO UPDATE SET id = agent_retention_policy.id
+        RETURNING *;
+        """
+    )
+    return dict(row)
+
+
+async def set_retention_policy(
+    conn: asyncpg.Connection, *, enabled: bool, retention_days: int
+) -> dict:
+    row = await conn.fetchrow(
+        """
+        INSERT INTO agent_retention_policy (id, enabled, retention_days, updated_at)
+        VALUES (1, $1, $2, clock_timestamp())
+        ON CONFLICT (id) DO UPDATE SET
+            enabled = EXCLUDED.enabled,
+            retention_days = EXCLUDED.retention_days,
+            updated_at = clock_timestamp()
+        RETURNING *;
+        """,
+        enabled, retention_days,
+    )
+    return dict(row)
 
 
 async def update_heartbeat(

@@ -16,12 +16,15 @@ from app.agents.exceptions import AgentAuthenticationError, AgentNotFoundError
 from app.agents.matching import AssetMatchCandidate, evaluate_asset_match
 from app.agents.models import (
     AgentDetail,
+    AgentDeleteResult,
     AgentInventoryRequest,
     AgentRegistrationRequest,
     AgentRegistrationResponse,
+    AgentRetentionPolicy,
     AgentStatus,
     AgentSummary,
     AgentTelemetryRequest,
+    ArchivedAgentSummary,
 )
 from app.db import agent_enrollment as enrollment_repo
 from app.db import agents as agents_repo
@@ -81,18 +84,40 @@ def _derive_status(row: dict) -> AgentStatus:
     return "online"
 
 
+def _latest_available_version(os_name: str) -> str | None:
+    """Sunucuda GERÇEKTEN build edilmiş güncel paketin versiyonu —
+    yalnızca Windows için (bkz. `app/agents/download.py`, Linux
+    packaging henüz yok). Build edilmemişse dürüstçe `None` — asla bir
+    versiyon UYDURULMAZ."""
+    if os_name != "windows":
+        return None
+    # Döngüsel import riskini önlemek için burada, kullanım anında
+    # import edilir (`app.agents.download` bu modülü hiç import etmez,
+    # ama modül-seviyesi import sırası yine de kırılgan olabilir).
+    from app.agents.download import ArtifactNotAvailableError, resolve_windows_service_artifact
+
+    try:
+        return resolve_windows_service_artifact().version
+    except ArtifactNotAvailableError:
+        return None
+
+
 def _to_summary(row: dict) -> AgentSummary:
+    latest_version = _latest_available_version(row["os"])
+    agent_version = row["agent_version"]
     return AgentSummary(
         id=row["id"],
         hostname=row["hostname"],
         os=row["os"],
         os_version=row.get("os_version"),
-        agent_version=row["agent_version"],
+        agent_version=agent_version,
         local_ip=row.get("local_ip"),
         asset_id=row.get("asset_id"),
         status=_derive_status(row),
         registered_at=row["registered_at"],
         last_heartbeat_at=row.get("last_heartbeat_at"),
+        update_available=latest_version is not None and latest_version != agent_version,
+        latest_available_version=latest_version,
     )
 
 
@@ -210,6 +235,7 @@ async def get_agent_detail(conn: asyncpg.Connection, agent_id: UUID) -> AgentDet
 
     telemetry_row = await agents_repo.get_latest_telemetry(conn, agent_id)
     inventory_row = await agents_repo.get_inventory(conn, agent_id)
+    latest_version = _latest_available_version(row["os"])
 
     return AgentDetail(
         id=row["id"],
@@ -222,6 +248,8 @@ async def get_agent_detail(conn: asyncpg.Connection, agent_id: UUID) -> AgentDet
         status=_derive_status(row),
         registered_at=row["registered_at"],
         last_heartbeat_at=row.get("last_heartbeat_at"),
+        update_available=latest_version is not None and latest_version != row["agent_version"],
+        latest_available_version=latest_version,
         architecture=row.get("architecture"),
         local_ip=row.get("local_ip"),
         mac_address=row.get("mac_address"),
@@ -253,6 +281,119 @@ async def get_agent_detail(conn: asyncpg.Connection, agent_id: UUID) -> AgentDet
         if inventory_row
         else None,
     )
+
+
+def _active_duration_seconds(row: dict) -> float | None:
+    """`registered_at` ile agent'ın SON gerçekten aktif olduğu an
+    (heartbeat varsa `last_heartbeat_at`, hiç heartbeat yoksa
+    arşivlenme anı `archived_at`) arasındaki fark — "ne kadar süre
+    aktifti" (Arşiv ekranı). `registered_at` yoksa (olmamalı, NOT NULL
+    kolon) dürüstçe `None`."""
+    registered_at = row.get("registered_at")
+    if registered_at is None:
+        return None
+    end = row.get("last_heartbeat_at") or row.get("archived_at")
+    if end is None:
+        return None
+    return (end - registered_at).total_seconds()
+
+
+def _to_archived_summary(row: dict) -> ArchivedAgentSummary:
+    return ArchivedAgentSummary(
+        id=row["id"],
+        hostname=row["hostname"],
+        os=row["os"],
+        os_version=row.get("os_version"),
+        local_ip=row.get("local_ip"),
+        registered_at=row["registered_at"],
+        last_heartbeat_at=row.get("last_heartbeat_at"),
+        archived_at=row["archived_at"],
+        archived_reason=row["archived_reason"],
+        archived_after_inactive_days=row.get("archived_after_inactive_days"),
+        active_duration_seconds=_active_duration_seconds(row),
+    )
+
+
+async def list_archived_agents(conn: asyncpg.Connection) -> list[ArchivedAgentSummary]:
+    rows = await agents_repo.list_archived_agents(conn)
+    return [_to_archived_summary(row) for row in rows]
+
+
+async def delete_agent(
+    conn: asyncpg.Connection, agent_id: UUID, *, send_uninstall_command: bool
+) -> AgentDeleteResult:
+    """Manuel silme — Agent'ı ARŞİVLER (kalıcı olarak SİLMEZ, bkz.
+    `app/db/agents.py::archive_agent` docstring'i), isteğe bağlı
+    olarak arşivlemeden ÖNCE agent'a `uninstall_service` komutu
+    kuyruğa alır (agent hâlâ aktifken/token'ı geçerliyken kuyruğa
+    girmesi gerekir — arşivleme `revoked_at`'i doldurup kimlik
+    doğrulamayı KAPATIR, bu yüzden sıra ÖNEMLİDİR)."""
+    from app.agents import command_service
+    from app.agents.command_models import AgentCommandRequest
+
+    row = await agents_repo.get_agent_by_id(conn, agent_id)
+    if row is None:
+        raise AgentNotFoundError(f"Agent bulunamadı: {agent_id}")
+
+    uninstall_command_id: UUID | None = None
+    if send_uninstall_command:
+        summary = await command_service.submit_command(
+            conn,
+            agent_id,
+            AgentCommandRequest(
+                command_type="uninstall_service",
+                action="uninstall",
+                target="self",
+                requested_by="settings-ui",
+            ),
+        )
+        uninstall_command_id = summary.id
+
+    await agents_repo.archive_agent(conn, agent_id, reason="manual")
+    return AgentDeleteResult(archived=True, uninstall_command_id=uninstall_command_id)
+
+
+async def restore_agent(conn: asyncpg.Connection, agent_id: UUID) -> AgentSummary:
+    row = await agents_repo.restore_agent(conn, agent_id)
+    if row is None:
+        raise AgentNotFoundError(f"Agent bulunamadı: {agent_id}")
+    return _to_summary(row)
+
+
+async def get_retention_policy(conn: asyncpg.Connection) -> AgentRetentionPolicy:
+    row = await agents_repo.get_retention_policy(conn)
+    return AgentRetentionPolicy(enabled=row["enabled"], retention_days=row["retention_days"])
+
+
+async def set_retention_policy(
+    conn: asyncpg.Connection, *, enabled: bool, retention_days: int
+) -> AgentRetentionPolicy:
+    row = await agents_repo.set_retention_policy(conn, enabled=enabled, retention_days=retention_days)
+    return AgentRetentionPolicy(enabled=row["enabled"], retention_days=row["retention_days"])
+
+
+async def trigger_agent_update(conn: asyncpg.Connection, agent_id: UUID) -> UUID:
+    """Uzaktan Sürüm Güncelleme — agent'a `update_self` komutu kuyruğa
+    alır, oluşturulan komutun id'sini döner. Agent'ın kendisi henüz
+    Windows dışında bu komutu desteklemiyor (bkz. `apps/agent/agent/
+    lifecycle.py`) — backend bunu KISITLAMAZ (agent tarafı zaten
+    dürüstçe `failed` sonucu bildirir), yalnızca UI `update_available`
+    zaten yalnızca Windows için `True` olur."""
+    from app.agents import command_service
+    from app.agents.command_models import AgentCommandRequest
+
+    agent = await agents_repo.get_agent_by_id(conn, agent_id)
+    if agent is None:
+        raise AgentNotFoundError(f"Agent bulunamadı: {agent_id}")
+
+    summary = await command_service.submit_command(
+        conn,
+        agent_id,
+        AgentCommandRequest(
+            command_type="update_self", action="update", target="self", requested_by="settings-ui"
+        ),
+    )
+    return summary.id
 
 
 async def evaluate_agent_asset_match(conn: asyncpg.Connection, agent_id: UUID) -> AssetMatchCandidate:

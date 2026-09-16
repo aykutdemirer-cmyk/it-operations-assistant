@@ -117,6 +117,23 @@ def _sequential_get(*responses):
     return _side_effect
 
 
+def _sequential_bulk(*responses):
+    """`_sequential_get` ile aynı — ardışık `slim.bulk` çağrılarına
+    sırayla verilecek yanıtlar (bkz. `_bulk_walk`/HOST-RESOURCES-MIB
+    testleri)."""
+    calls = {"n": 0}
+
+    async def _side_effect(community, host, port, non_reps, max_reps, *var_binds, timeout, retries):
+        idx = calls["n"]
+        calls["n"] += 1
+        response = responses[idx]
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    return _side_effect
+
+
 @pytest.fixture(autouse=True)
 def _clean_bandwidth_state():
     _LAST_SAMPLES.clear()
@@ -413,15 +430,29 @@ async def test_secret_never_appears_in_response_serialization():
     assert _SECRET_VALUE not in ok_result.model_dump_json()
 
 
-# 18. not_configured davranışı (community secret .env'de yoksa)
-async def test_not_configured_when_secret_missing(monkeypatch):
+# 18. community_ref bir .env değişken adı olarak bulunamazsa çökmek/
+# not_configured dönmek yerine metnin kendisi düz metin community
+# string olarak kullanılır (kullanıcı isteği — bkz. secrets.py::
+# resolve_secret allow_literal_fallback). `SNMPProfile`'ın kendi
+# validator'ı v2c için community_ref'i zaten zorunlu tuttuğundan
+# (bkz. credentials.py::validate_snmp_version_fields), gerçek
+# "not_configured" senaryosu artık yalnızca bu fallback ile
+# ULAŞILAMAZ bir savunma dalı — asıl davranış değişikliği burada
+# test ediliyor.
+async def test_community_ref_falls_back_to_literal_value_when_not_an_env_var(monkeypatch):
     monkeypatch.delenv(_SECRET_ENV_VAR, raising=False)
-    get_mock = AsyncMock()
-    with patch("app.snmp.client.Slim.get", new=get_mock):
-        result = await SNMPClient().poll_asset(_profile(), "10.0.9.1", uuid4())
+    literal_community = "public"
+    get_mock = AsyncMock(side_effect=_sequential_get(_system_response()))
+    with (
+        patch("app.snmp.client.Slim.get", new=get_mock),
+        patch("app.snmp.client.Slim.bulk", new=_no_interfaces_bulk()),
+    ):
+        result = await SNMPClient().poll_asset(
+            _profile(community_ref=literal_community), "10.0.9.1", uuid4()
+        )
 
-    assert result.status == "not_configured"
-    get_mock.assert_not_called()
+    assert result.status == "success"
+    get_mock.assert_awaited()
 
 
 # 19. Kısmi (partial) interface hatası
@@ -458,3 +489,82 @@ async def test_malformed_oid_in_discovery_is_skipped():
 
     assert result.status == "success"
     assert [iface.if_index for iface in result.interfaces] == [2]
+
+
+# 21. HOST-RESOURCES-MIB (CPU/Bellek) desteklendiğinde gerçek değerler
+# okunur ve `SystemInfo`'ya eklenir. Sıra-bazlı (call-order) yanıtlar
+# kullanılır — GET/GETBULK istek var bind'ları (`ObjectType(ObjectIdentity(
+# ...))`) henüz `resolve_with_mib` edilmediği için indekslenemiyor
+# (`SmiError`), bu yüzden `_sequential_get`'teki gibi çağrı SIRASINA göre
+# yanıt veriliyor: `_poll_with_transport`'un sabit akışı — system GET ->
+# hrProcessorLoad walk (2 tur) -> hrStorageType walk (2 tur) ->
+# hrStorage size/used/alloc GET -> ifDescr keşif walk (boş, interface yok).
+async def test_cpu_and_memory_reported_when_host_resources_mib_supported():
+    from app.snmp.oid_map import HR_PROCESSOR_LOAD_BASE_OID, HR_STORAGE_RAM_TYPE_OID, HR_STORAGE_TYPE_BASE_OID
+
+    bulk_responses = [
+        (
+            None, 0, 0,
+            (
+                _vb(f"{HR_PROCESSOR_LOAD_BASE_OID}.1", Integer32(20)),
+                _vb(f"{HR_PROCESSOR_LOAD_BASE_OID}.2", Integer32(40)),
+            ),
+        ),
+        (None, 0, 0, ()),  # hrProcessorLoad walk'ın 2. turu — durdurur
+        (
+            None, 0, 0,
+            (
+                # index 1: disk (RAM DEĞİL) — atlanmalı.
+                _vb(f"{HR_STORAGE_TYPE_BASE_OID}.1", ObjectIdentifier("1.3.6.1.2.1.25.2.1.4")),
+                # index 2: RAM.
+                _vb(f"{HR_STORAGE_TYPE_BASE_OID}.2", ObjectIdentifier(HR_STORAGE_RAM_TYPE_OID)),
+            ),
+        ),
+        (None, 0, 0, ()),  # hrStorageType walk'ın 2. turu — durdurur
+        (None, 0, 0, ()),  # ifDescr keşif walk'ı — hiç interface yok
+    ]
+    from app.snmp.oid_map import (
+        HR_STORAGE_ALLOC_UNITS_BASE_OID,
+        HR_STORAGE_SIZE_BASE_OID,
+        HR_STORAGE_USED_BASE_OID,
+    )
+
+    get_responses = [
+        _system_response(),
+        (
+            None, 0, 0,
+            (
+                _vb(f"{HR_STORAGE_SIZE_BASE_OID}.2", Integer32(2048)),
+                _vb(f"{HR_STORAGE_USED_BASE_OID}.2", Integer32(1024)),
+                _vb(f"{HR_STORAGE_ALLOC_UNITS_BASE_OID}.2", Integer32(1024)),
+            ),
+        ),
+    ]
+
+    with (
+        patch("app.snmp.client.Slim.get", new=AsyncMock(side_effect=_sequential_get(*get_responses))),
+        patch("app.snmp.client.Slim.bulk", new=AsyncMock(side_effect=_sequential_bulk(*bulk_responses))),
+    ):
+        result = await SNMPClient().poll_asset(_profile(), "10.0.9.1", uuid4())
+
+    assert result.status == "success"
+    assert result.system is not None
+    assert result.system.cpu_percent == 30.0
+    assert result.system.memory_used_bytes == 1024 * 1024  # used_units(1024) * alloc_units(1024)
+    assert result.system.memory_total_bytes == 2048 * 1024
+
+
+# 22. HOST-RESOURCES-MIB'i hiç desteklemeyen bir ajanda (ör. çoğu
+# switch/router/firewall) CPU/Bellek dürüstçe `None` kalır — poll'un
+# genel `status`'unu ASLA etkilemez.
+async def test_cpu_and_memory_are_none_when_host_resources_mib_unsupported():
+    get_mock = AsyncMock(side_effect=_sequential_get(_system_response()))
+    bulk_mock = AsyncMock(return_value=(None, 0, 0, ()))  # hiçbir subtree'de veri yok
+    with patch("app.snmp.client.Slim.get", new=get_mock), patch("app.snmp.client.Slim.bulk", new=bulk_mock):
+        result = await SNMPClient().poll_asset(_profile(), "10.0.9.1", uuid4())
+
+    assert result.status == "success"
+    assert result.system is not None
+    assert result.system.cpu_percent is None
+    assert result.system.memory_used_bytes is None
+    assert result.system.memory_total_bytes is None

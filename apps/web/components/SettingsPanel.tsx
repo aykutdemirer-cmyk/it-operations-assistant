@@ -4,23 +4,47 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 
 import { fetchAgents, fetchHealth, fetchHealthDb, fetchHealthSnmp } from "@/lib/api";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { useLocale } from "@/lib/i18n/LocaleProvider";
 import type { Locale } from "@/lib/i18n/translations";
-import { useTheme, type Theme } from "@/lib/theme/ThemeProvider";
+import { ALL_THEMES, useTheme, type Theme } from "@/lib/theme/ThemeProvider";
 import { AgentDownloadPanel } from "./AgentDownloadPanel";
 import { AgentEnrollmentPanel } from "./AgentEnrollmentPanel";
+import { LdapConfigurationCenter } from "./LdapConfigurationCenter";
+import { ScheduledScansPanel } from "./ScheduledScansPanel";
+import { SmtpConfigurationCenter } from "./SmtpConfigurationCenter";
 import { SnmpConfigurationCenter } from "./SnmpConfigurationCenter";
+import { VCenterConfigPanel } from "./vcenter/VCenterConfigPanel";
 import styles from "./SettingsPanel.module.css";
 
 type CheckStatus = "checking" | "ok" | "unreachable";
+type SnmpCheckStatus = "checking" | "configured" | "not_configured" | "unreachable";
+
+// Faz 59 — tema id → i18n etiketi (aynı eşleme `ThemeSwitcher.tsx`'te de var).
+function themeLabel(theme: Theme, s: ReturnType<typeof useLocale>["t"]["settings"]): string {
+  switch (theme) {
+    case "fortios-dark":
+      return s.themeFortiosDark;
+    case "cyber-neon":
+      return s.themeCyberNeon;
+    case "midnight-blue":
+      return s.themeMidnightBlue;
+    case "enterprise-light":
+      return s.themeEnterpriseLight;
+  }
+}
 
 export function SettingsPanel() {
   const { locale, setLocale, t } = useLocale();
   const { theme, setTheme } = useTheme();
+  const { currentUser } = useAuth();
+  const canManageLdap = currentUser?.permissions.includes("PAM_ADMIN") ?? false;
+  const canManageSmtp = currentUser?.role === "ADMIN";
+  const canManageVcenter = currentUser?.permissions.includes("VCENTER_ADMIN") ?? false;
 
   const [backendStatus, setBackendStatus] = useState<CheckStatus>("checking");
   const [dbStatus, setDbStatus] = useState<CheckStatus>("checking");
-  const [snmpStatus, setSnmpStatus] = useState<CheckStatus>("checking");
+  const [snmpStatus, setSnmpStatus] = useState<SnmpCheckStatus>("checking");
   const [agentCount, setAgentCount] = useState<number | null>(null);
 
   useEffect(() => {
@@ -42,13 +66,13 @@ export function SettingsPanel() {
         if (!cancelled) setDbStatus("unreachable");
       });
 
-    // /api/health/snmp her zaman 200 + not_configured döner (gerçek
-    // ajan yok) — burada yalnızca backend'e gerçekten ulaşılabildiğini
-    // doğruluyoruz; "ok" durumu bile SNMP Durumu satırında her zaman
-    // "Yapılandırılmadı" olarak gösterilir (bkz. render kısmı).
+    // Faz: artık gerçek `snmp_profiles` durumunu yansıtıyor — en az bir
+    // profil gerçekten "ready" (etkin + credential çözülmüş) ise
+    // "configured", değilse dürüstçe "not_configured" (bkz.
+    // app/routes/health.py).
     fetchHealthSnmp()
-      .then(() => {
-        if (!cancelled) setSnmpStatus("ok");
+      .then((result) => {
+        if (!cancelled) setSnmpStatus(result.snmp === "configured" ? "configured" : "not_configured");
       })
       .catch(() => {
         if (!cancelled) setSnmpStatus("unreachable");
@@ -89,9 +113,12 @@ export function SettingsPanel() {
       <p className={styles.groupLabel}>{t.settings.sectionGeneral}</p>
 
       <section className={styles.card}>
-        <h3 className={styles.sectionTitle}>{t.settings.appearance}</h3>
-        <div className={styles.toggleGroup} role="group" aria-label={t.settings.appearance}>
-          {(["dark", "light"] as Theme[]).map((option) => (
+        <h3 className={styles.sectionTitle}>{t.settings.theme}</h3>
+        {/* Faz 59 — 2 düğmeli dark/light toggle 4 temalı seçiciye
+            dönüştü; header'daki `ThemeSwitcher` ile AYNI `useTheme()`
+            state'ini paylaşır. */}
+        <div className={styles.toggleGroup} role="group" aria-label={t.settings.theme}>
+          {ALL_THEMES.map((option) => (
             <button
               key={option}
               type="button"
@@ -101,7 +128,7 @@ export function SettingsPanel() {
               aria-pressed={theme === option}
               onClick={() => setTheme(option)}
             >
-              {option === "dark" ? t.settings.appearanceDark : t.settings.appearanceLight}
+              {themeLabel(option, t.settings)}
             </button>
           ))}
         </div>
@@ -149,6 +176,34 @@ export function SettingsPanel() {
 
       <SnmpConfigurationCenter />
 
+      {canManageLdap && (
+        <>
+          <p className={styles.groupLabel}>{t.settings.ldapConfig.sectionTitle}</p>
+          <LdapConfigurationCenter />
+        </>
+      )}
+
+      {canManageSmtp && (
+        <>
+          <p className={styles.groupLabel}>{t.settings.smtpConfig.sectionTitle}</p>
+          <SmtpConfigurationCenter />
+        </>
+      )}
+
+      {canManageSmtp && (
+        <>
+          <p className={styles.groupLabel}>{t.settings.scheduledScans.title}</p>
+          <ScheduledScansPanel />
+        </>
+      )}
+
+      {canManageVcenter && (
+        <>
+          <p className={styles.groupLabel}>{t.settings.vcenterConfig.sectionTitle}</p>
+          <VCenterConfigPanel />
+        </>
+      )}
+
       <p className={styles.groupLabel}>{t.settings.sectionSystem}</p>
 
       <section className={styles.card}>
@@ -167,8 +222,22 @@ export function SettingsPanel() {
 
       <section className={styles.card}>
         <h3 className={styles.sectionTitle}>{t.settings.snmpStatus}</h3>
-        <span className={`${styles.statusBadge} ${styles.statusChecking}`}>
-          {snmpStatus === "checking" ? t.common.backendChecking : t.settings.notConfigured}
+        <span
+          className={`${styles.statusBadge} ${
+            snmpStatus === "configured"
+              ? styles.statusOk
+              : snmpStatus === "unreachable"
+                ? styles.statusDown
+                : styles.statusChecking
+          }`}
+        >
+          {snmpStatus === "checking"
+            ? t.common.backendChecking
+            : snmpStatus === "configured"
+              ? t.settings.snmpConfigured
+              : snmpStatus === "unreachable"
+                ? t.settings.disconnected
+                : t.settings.notConfigured}
         </span>
       </section>
     </div>

@@ -62,7 +62,10 @@ async def poll_asset_snmp(asset_id: UUID) -> SNMPPollResult:
         )
 
     try:
-        return await SNMPClient().poll_asset(profile, asset["ip_address"], asset_id)
+        # `str(...)`: `assets.ip_address` (INET) asyncpg'de bir
+        # `ipaddress.IPv4Address` nesnesi olarak gelir — bkz. `app/snmp/
+        # poller.py::_poll_one`'daki AYNI düzeltmenin gerekçesi.
+        return await SNMPClient().poll_asset(profile, str(asset["ip_address"]), asset_id)
     except SNMPError:
         # `SNMPClient.poll_asset` normal şartlarda kendi hatalarını
         # yakalayıp `SNMPPollResult.status` üzerinden döner; buraya
